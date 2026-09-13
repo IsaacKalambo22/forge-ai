@@ -1,36 +1,182 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ForgeAI
 
-## Getting Started
+A learning project for AI engineering. The goal is not to ship a product — it is to
+understand each layer of an LLM application by building it, one deliberate experiment
+at a time.
 
-First, run the development server:
+> **Engineering principle:** understand each layer before introducing abstraction.
+
+## Status
+
+**Experiment 001 — Basic LLM Request.** In progress.
+
+| Piece | State |
+| --- | --- |
+| `POST /api/chat` route handler | ✅ Implemented, validation verified |
+| `askClaude()` provider adapter | ✅ Implemented |
+| Anthropic API key | ⛔ Not yet configured — see [Setup](#setup) |
+| Chat UI in `page.tsx` | ⬜ Not started |
+
+Until a real API key is in place, the endpoint validates input correctly but cannot
+reach the model. This is expected, and the failure is documented below.
+
+## Setup
+
+### 1. Install dependencies
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Requires Node 20+ (developed on v24).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. Add an Anthropic API key
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create a key at [console.anthropic.com](https://console.anthropic.com/settings/keys),
+then put it in `.env.local` at the project root:
 
-## Learn More
+```bash
+ANTHROPIC_API_KEY=sk-ant-...
+```
 
-To learn more about Next.js, take a look at the following resources:
+Notes:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `.env.local` is git-ignored via `.env*`. Never commit a key.
+- The variable is **not** prefixed `NEXT_PUBLIC_`, which is what keeps it out of the
+  browser bundle. If you are ever tempted to add that prefix to silence an error,
+  don't — see [Architecture](#architecture).
+- Environment variables are read when the dev server boots. **Restart after editing
+  `.env.local`.**
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 3. Run the dev server
 
-## Deploy on Vercel
+```bash
+pnpm dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Open [http://localhost:3000](http://localhost:3000).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Testing the endpoint
+
+The API can be exercised directly with `curl`, without any UI. Do this first — it
+separates "is my model call working" from "is my React working," which are two very
+different debugging sessions.
+
+**Validation (works without an API key):**
+
+```bash
+curl -s -w '\nHTTP %{http_code}\n' -X POST localhost:3000/api/chat \
+  -H 'Content-Type: application/json' -d '{"message":""}'
+```
+
+Returns `{"error":"Message is required"}` with HTTP 400. The same 400 is returned for
+a missing field, a whitespace-only string, or a non-string value. A `GET` to the same
+URL returns 405 — Next derives that from the fact that only `POST` is exported.
+
+**Model call (requires an API key):**
+
+```bash
+curl -s -X POST localhost:3000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Say hello in one sentence."}' | python3 -m json.tool
+```
+
+The route currently returns the **raw Anthropic `Message` object** so the response can
+be inspected. Four fields are worth reading every time:
+
+| Field | What it tells you |
+| --- | --- |
+| `content` | An **array of blocks**, not a string. Narrow on `block.type === "text"`. |
+| `usage` | Input and output token counts — the basis of cost. |
+| `stop_reason` | `end_turn` normally; `max_tokens` when the 1024 ceiling truncates it. |
+| `model` | Which model actually served the request. |
+
+### Known failure: no API key
+
+With a placeholder or missing key, the model call returns **HTTP 500**, while the
+server log shows the real cause:
+
+```text
+Error: 401 {"type":"error","error":{"type":"authentication_error",
+"message":"invalid x-api-key"}}
+```
+
+The status is not passed through because the route has **no error handling yet** —
+this is deliberate for Experiment 001. Seeing the raw failure is the point; handling
+it is a later experiment.
+
+Note what the browser received: `500`, and nothing else. The words `invalid x-api-key`
+and the request ID stayed on the server. That is the trust boundary working.
+
+## Project structure
+
+```text
+src/
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx              # UI — still create-next-app boilerplate
+│   └── api/
+│       └── chat/
+│           └── route.ts      # POST /api/chat — the trust boundary
+└── lib/
+    └── ai.ts                 # askClaude() — the only file that knows we use Anthropic
+
+docs/                         # Architecture, glossary, running notes
+experiments/                  # One directory per experiment, each with its own README
+```
+
+## Architecture
+
+```text
+User
+  │
+  ▼
+Browser  ·  page.tsx ("use client")          ← untrusted: the user controls this
+  │
+  │  POST /api/chat   { message }
+  ▼ ─────────────────────────────────────────  trust boundary
+Server   ·  app/api/chat/route.ts            ← trusted: the user cannot read or edit this
+  │
+  ▼
+AI Service  ·  lib/ai.ts                     ← holds ANTHROPIC_API_KEY
+  │
+  ▼
+LLM Provider  ·  api.anthropic.com/v1/messages
+```
+
+The browser never holds the API key, and never talks to Anthropic directly. To call
+the API a request needs an `x-api-key` header — and anything the browser can send, the
+user can read from DevTools in about two seconds. No obfuscation changes that; the
+browser must hold the plaintext key in order to send it.
+
+The boundary is not just about hiding a string. It is the only place control logic can
+live, because it is the only code the user cannot edit: the system prompt, the model
+choice, `max_tokens`, rate limits, and the bill all depend on it. Every defence added
+later — auth, quotas, logging, tool permissions — hangs off this line.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the versioned architecture record
+and [docs/GLOSSARY.md](docs/GLOSSARY.md) for terminology.
+
+## Experiments
+
+Each experiment is a self-contained question with its own README recording the
+objective, observations, lessons, and the questions that remain unanswered. The README
+is the deliverable; the code is the apparatus.
+
+| # | Experiment | Status |
+| --- | --- | --- |
+| 001 | [Basic LLM Request](experiments/001-basic-llm/README.md) | In progress |
+
+### Deliberately out of scope for v0.1
+
+Streaming · system prompts · conversation history · prompt caching · token counting ·
+RAG · vector databases · tool calling · agents · memory · autonomous execution
+
+Each of these is a later experiment. Adding them early would defeat the point.
+
+## Stack
+
+- **Next.js 16** (App Router) with React 19
+- **TypeScript**, **Tailwind CSS v4**
+- **[@anthropic-ai/sdk](https://github.com/anthropics/anthropic-sdk-typescript)** —
+  currently calling `claude-opus-5`
