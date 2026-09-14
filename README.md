@@ -119,7 +119,10 @@ src/
 │   ├── layout.tsx
 │   ├── page.tsx              # Server Component — renders the chat island
 │   ├── chat.tsx              # Client Component — input, state, fetch
+│   ├── search.tsx            # Client Component — semantic search over the notebook
 │   └── api/
+│       ├── search/
+│       │   └── route.ts      # POST /api/search — semantic search, no API key needed
 │       ├── analyze/
 │       │   └── route.ts      # POST /api/analyze — structured output, real status codes
 │       └── chat/
@@ -129,6 +132,10 @@ src/
     ├── messages.ts           # ChatMessage type, MAX_TURNS, validator — client-safe
     ├── personas.ts           # persona ids — safe for the browser
     ├── expression.ts         # pure arithmetic parser — no imports, no privileges
+    ├── vector.ts             # cosine similarity + topK — no imports, no privileges
+    ├── corpus.ts             # the searchable lessons — client-safe
+    ├── embeddings.ts         # "server-only": local embedding model
+    ├── search.ts             # "server-only": cached corpus index
     ├── tools.ts              # "server-only": tool definitions + execution
     └── ai.ts                 # "server-only": prompt text, SDK, API key, tool loop
 
@@ -183,8 +190,8 @@ is the deliverable; the code is the apparatus.
 | 004 | [Streaming](experiments/004-streaming/README.md) | 🟢 Working — NDJSON stream; real deltas unobserved |
 | 005 | [Structured Output](experiments/005-structured-output/README.md) | 🟢 Working — schema verified on the wire; model conformance unobserved |
 | 006 | [Tool Calling](experiments/006-tool-calling/README.md) | 🟢 Working — loop built, evaluator 28/28; loop never executed |
-| 007 | Embeddings | ⚪ Next |
-| 008 | RAG | ⚪ |
+| 007 | [Embeddings](experiments/007-embeddings/README.md) | 🟢 **Verified end-to-end** — local model, semantic search working |
+| 008 | RAG | ⚪ Next |
 | 009 | Agents | ⚪ |
 
 Beyond the foundation: prompt design → context management → persistence → auth →

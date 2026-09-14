@@ -90,3 +90,16 @@ what matches it to the request.
 
 **`is_error`** — a flag on a tool result telling the model the tool failed, so it can
 correct itself rather than treating garbage as fact.
+
+**Embedding** — a fixed-length list of numbers representing a piece of text, positioned so
+that similar meanings point in similar directions. Here 384 numbers, normalised to
+length 1.
+
+**Cosine similarity** — the cosine of the angle between two vectors, ignoring their
+lengths. 1 = same direction, 0 = unrelated, -1 = opposite.
+
+**Semantic search** — retrieval by meaning rather than shared words. Finds a document
+with no keywords in common with the query.
+
+**top-k** — returning the k closest results rather than only the best one, because the
+best one is often wrong and the right one is usually nearby.
