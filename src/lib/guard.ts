@@ -3,6 +3,7 @@ import "server-only";
 import { timingSafeEqual } from "node:crypto";
 
 import { consume, evictIdle, newBucket, type Bucket, type Limit } from "./ratelimit";
+import { SESSION_COOKIE, readCookie, verifySession } from "./session";
 
 // Per-caller allowance. Capacity is the burst; refill is the sustained rate.
 // 20 tokens refilling at 1/3 per second ≈ 20 chat calls per minute sustained.
@@ -76,16 +77,34 @@ function checkAuth(request: Request): Response | null {
     return null; // local development: open, as it always has been
   }
 
+  // Two ways in, for two different kinds of caller.
+  //
+  //   Bearer token  — scripts and curl. The caller holds the secret.
+  //   Session cookie — the browser. It holds a SIGNED CLAIM instead, because a
+  //                    browser that held the secret would leak it (Exp. 001/002).
   const header = request.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
+  if (bearer !== "" && secretMatches(bearer, expected)) return null;
 
-  if (!secretMatches(token, expected)) {
-    // No distinction between "missing" and "wrong" — the difference is
-    // information an attacker can use.
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const cookie = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
+  if (cookie !== null && verifySession(cookie, expected, Date.now()).valid) return null;
 
-  return null;
+  // No distinction between missing, wrong, expired or forged — the difference
+  // is information an attacker can use.
+  return Response.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+/** True when a secret is configured, so the UI knows whether to show a login form. */
+export function authRequired(): boolean {
+  const secret = process.env.APP_SECRET;
+  return secret !== undefined && secret !== "";
+}
+
+export function hasValidSession(request: Request): boolean {
+  const secret = process.env.APP_SECRET;
+  if (secret === undefined || secret === "") return true; // dev: open
+  const cookie = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
+  return cookie !== null && verifySession(cookie, secret, Date.now()).valid;
 }
 
 /**
@@ -98,6 +117,16 @@ export function guard(request: Request, route: RouteName): Response | null {
   const denied = checkAuth(request);
   if (denied !== null) return denied;
 
+  return rateLimit(request, route);
+}
+
+/**
+ * Rate limiting WITHOUT the auth check — for the login endpoint, which by
+ * definition cannot require authentication. An unlimited login endpoint is an
+ * offer to brute-force the secret, so it still needs a limit; it just cannot
+ * get one from `guard`.
+ */
+export function rateLimit(request: Request, route: RouteName): Response | null {
   const now = Date.now();
   const cost = COST[route];
 

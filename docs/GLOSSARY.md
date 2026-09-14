@@ -149,3 +149,19 @@ how many bytes matched.
 **Session** — proof of identity the server can verify but the client cannot forge. What a
 browser needs, and what a shared secret cannot provide, because the browser would have to
 hold the secret.
+
+**Export condition** — a key in a package's `exports` map selecting which file an import
+resolves to. `server-only` uses `react-server`; passing `--conditions=react-server` makes
+it resolve to an empty module, which is what lets tests import server-only code.
+
+**Signed token** — a payload plus a MAC the server can verify. Readable by the holder,
+unforgeable by them. Not the same as an encrypted token: never put a secret in one.
+
+**`HttpOnly`** — a cookie attribute making the cookie invisible to JavaScript, so an XSS
+bug cannot steal the session.
+
+**`SameSite`** — a cookie attribute preventing the cookie being sent on cross-site
+requests. CSRF defence.
+
+**Regression witness** — a test asserting that a known-bad implementation *is* broken, so
+reintroducing the pattern fails the suite.

@@ -141,8 +141,30 @@ per-caller limit, because CPU is a resource too.
 State is in memory: it resets on restart and is not shared between instances. This bounds
 accidents and casual abuse, not a determined attacker against a scaled deployment.
 
-A shared secret cannot authenticate the browser — the browser would have to hold it, which
-is Experiment 001's lesson. Session authentication is the missing piece.
+Two ways in, for two kinds of caller (Experiment 012):
+
+```text
+Bearer <APP_SECRET>     scripts and curl — the caller holds the secret
+forge_session cookie    the browser — it holds a SIGNED CLAIM, never the secret
+                        HttpOnly · SameSite=Strict · Secure in prod · 12h
+```
+
+A shared secret cannot authenticate a browser, because the browser would have to hold it
+(Experiment 001). So the browser posts the password once to `/api/login` and receives a
+cookie it cannot read. `POST /api/login` is rate-limited but not auth-checked — a login
+endpoint cannot require login, and an unlimited one is a brute-force oracle.
+
+## Testing (added in Experiment 012)
+
+```bash
+pnpm test   # 160 assertions, no framework
+```
+
+`server-only` modules are reachable from tests via `--conditions=react-server` (the marker
+package resolves to an empty file), plus a `registerHooks` resolver for `@/` aliases and
+extensionless imports. Pure modules with no imports — `expression`, `vector`, `chunk`,
+`agent`, `passage`, `ratelimit`, `session` — carry the logic that is worth testing
+exhaustively; that separation is why the suite exists at all.
 
 ## Engineering principle
 

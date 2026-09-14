@@ -120,7 +120,10 @@ src/
 │   ├── page.tsx              # Server Component — renders the chat island
 │   ├── chat.tsx              # Client Component — input, state, fetch
 │   ├── ask.tsx               # Client Component — RAG over the notebook
+│   ├── login.tsx             # Client Component — password form (shown only when locked)
 │   └── api/
+│       ├── login/
+│       │   └── route.ts      # POST sign in · DELETE sign out
 │       ├── agent/
 │       │   └── route.ts      # POST /api/agent — model chooses its own context
 │       ├── ask/
@@ -142,6 +145,7 @@ src/
     ├── passage.ts            # nonce-fenced passage rendering — no imports
     ├── ratelimit.ts          # token bucket — no imports, injected clock
     ├── guard.ts              # "server-only": auth + rate limit + daily budget
+    ├── session.ts            # signed session tokens — secret injected, testable
     ├── knowledge.ts          # "server-only": the notebook index (65 chunks)
     ├── corpus.ts             # the searchable lessons — client-safe
     ├── embeddings.ts         # "server-only": local embedding model
@@ -151,6 +155,7 @@ src/
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
+tests/                        # `pnpm test` — 160 assertions, no framework
 ```
 
 ## Architecture
@@ -205,6 +210,7 @@ is the deliverable; the code is the apparatus.
 | 009 | [Agent](experiments/009-agent/README.md) | 🟢 Loop built, stopping policy 12/12; loop never executed |
 | 010 | [Prompt Injection](experiments/010-prompt-injection/README.md) | 🟢 **Real vulnerability found and fixed** — 0/4 → 12/12 |
 | 011 | [Auth, Rate Limiting & Cost Control](experiments/011-auth-and-limits/README.md) | 🟢 **Verified end-to-end** — limiter 21/21, prod fails closed |
+| 012 | [Test Suite & Sessions](experiments/012-testing-and-sessions/README.md) | 🟢 **Verified end-to-end** — `pnpm test` 160/160, session flow working |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
