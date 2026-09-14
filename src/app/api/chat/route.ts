@@ -1,6 +1,7 @@
-import { askClaude } from "@/lib/ai";
+import { streamClaude } from "@/lib/ai";
 import { MAX_TURNS, isChatMessage } from "@/lib/messages";
 import { isPersonaId } from "@/lib/personas";
+import type { StreamEvent } from "@/lib/messages";
 
 export async function POST(request: Request) {
   // Experiment 001 found that a malformed or `null` body throws *before* the
@@ -53,13 +54,54 @@ export async function POST(request: Request) {
     return Response.json({ error: "Unknown persona" }, { status: 400 });
   }
 
-  try {
-    const response = await askClaude(messages, persona ?? "default");
-    return Response.json(response);
-  } catch (error) {
-    // Log the real error server-side; send the client a safe summary.
-    console.error("askClaude failed:", error);
-    const detail = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: `Model request failed: ${detail}` }, { status: 502 });
-  }
+  // Everything above ran BEFORE any bytes were sent, so it can still choose a
+  // status code. Everything below cannot: the status line goes out with the
+  // first byte of the stream, so a failure after this point has to be reported
+  // *inside* the stream body, on an HTTP 200.
+  const encoder = new TextEncoder();
+
+  const responseBody = new ReadableStream({
+    async start(controller) {
+      const send = (event: StreamEvent) =>
+        controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+
+      try {
+        const stream = streamClaude(messages, persona ?? "default");
+
+        for await (const event of stream) {
+          if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
+            send({ type: "text", text: event.delta.text });
+          }
+        }
+
+        // The stream object also assembles the complete message for us, which
+        // is where usage and stop_reason live — they are not in the deltas.
+        const final = await stream.finalMessage();
+        send({
+          type: "done",
+          usage: final.usage,
+          stop_reason: final.stop_reason,
+          model: final.model,
+        });
+      } catch (error) {
+        console.error("streamClaude failed:", error);
+        const detail = error instanceof Error ? error.message : "Unknown error";
+        send({ type: "error", error: `Model request failed: ${detail}` });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(responseBody, {
+    headers: {
+      // Newline-delimited JSON: one complete JSON object per line. Simpler than
+      // SSE and enough for this experiment — see the experiment README.
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { MAX_TURNS, type ChatMessage } from "@/lib/messages";
+import { MAX_TURNS, type ChatMessage, type StreamEvent } from "@/lib/messages";
 import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
 
 export default function Chat() {
@@ -13,6 +13,10 @@ export default function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The partial reply, rebuilt as deltas arrive. It is NOT in `messages` yet —
+  // an incomplete turn must not become part of the conversation history.
+  const [streaming, setStreaming] = useState("");
+  const [meta, setMeta] = useState<string | null>(null);
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -27,6 +31,9 @@ export default function Chat() {
     setLoading(true);
     setError(null);
 
+    setStreaming("");
+    setMeta(null);
+
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,24 +42,55 @@ export default function Chat() {
       body: JSON.stringify({ messages: next, persona }),
     });
 
-    const data = await response.json();
-
-    if (!response.ok) {
+    // A non-200 here means the request was rejected BEFORE streaming began —
+    // validation. Those responses are still ordinary JSON.
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(() => ({}));
       setError(data.error ?? `Request failed with ${response.status}`);
       setLoading(false);
       return;
     }
 
-    // `content` is an array of blocks, not a string. Experiment 001 only ever
-    // produces text blocks, so we keep the text ones and join them.
-    const answer = data.content
-      .filter((block: { type: string }) => block.type === "text")
-      .map((block: { text: string }) => block.text)
-      .join("\n");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let answer = "";
 
-    // The assistant's reply must be appended too — otherwise the next request
-    // sends questions with no answers between them and the model loses the thread.
-    setMessages((previous) => [...previous, { role: "assistant", content: answer }]);
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      // Network chunks do NOT align with line boundaries: one read can deliver
+      // half a JSON object, or three and a half. Keep the remainder in `buffer`
+      // and only parse up to the last complete newline.
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (line.trim() === "") continue;
+        const event = JSON.parse(line) as StreamEvent;
+
+        if (event.type === "text") {
+          answer += event.text;
+          setStreaming(answer);
+        } else if (event.type === "done") {
+          setMeta(
+            `${event.usage.input_tokens} in / ${event.usage.output_tokens} out · ` +
+              `stop_reason: ${event.stop_reason} · ${event.model}`,
+          );
+        } else if (event.type === "error") {
+          // Reported on an HTTP 200: the status was already sent.
+          setError(event.error);
+        }
+      }
+    }
+
+    // Only a completed reply joins the history.
+    if (answer !== "") {
+      setMessages((previous) => [...previous, { role: "assistant", content: answer }]);
+    }
+    setStreaming("");
     setLoading(false);
   }
 
@@ -70,6 +108,15 @@ export default function Chat() {
           </div>
         ))}
       </div>
+
+      {streaming !== "" && (
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium text-zinc-500">Claude · {persona}</p>
+          <p className="whitespace-pre-wrap">{streaming}</p>
+        </div>
+      )}
+
+      {meta && <p className="text-xs text-zinc-500">{meta}</p>}
 
       {error && (
         <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">

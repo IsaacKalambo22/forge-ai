@@ -54,3 +54,18 @@ the full `messages` array. Nothing outside it exists to the model.
 
 **`import type`** — a TypeScript import erased at compile time. Naming a type from a
 heavy library costs the bundle nothing; a value import from the same module does not.
+
+**Streaming** — writing the response body incrementally while the model generates,
+instead of sending it once complete.
+
+**NDJSON** — newline-delimited JSON: one complete JSON object per line. A simple
+streaming wire format.
+
+**SSE (Server-Sent Events)** — the standard streaming format, with `data:` framing and
+automatic reconnection via `EventSource`. What the Anthropic API itself sends.
+
+**Chunked transfer encoding** — an HTTP response sent without `Content-Length`, because
+the total size is unknown when the headers are written. What makes streaming possible.
+
+**Delta** — one incremental piece of a streamed response. Text deltas carry text only;
+totals like `usage` and `stop_reason` arrive at the end.

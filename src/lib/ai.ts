@@ -28,6 +28,22 @@ const PROMPTS: Record<PersonaId, string> = {
 // `messages` is the ENTIRE conversation, not just the newest turn. The API is
 // stateless: it remembers nothing between calls, so context is something this
 // application rebuilds and resends every single time.
+// Streaming counterpart of askClaude(). Returns the SDK's stream object rather
+// than a promise: events arrive over time, and the request is still in flight
+// when this function returns.
+export function streamClaude(
+  messages: ChatMessage[],
+  persona: PersonaId = "default",
+) {
+  return anthropic.messages.stream({
+    model: "claude-opus-5",
+    // Deliberately low for Experiment 001's open question Q7.
+    max_tokens: 1024,
+    system: PROMPTS[persona],
+    messages,
+  });
+}
+
 export async function askClaude(
   messages: ChatMessage[],
   persona: PersonaId = "default",

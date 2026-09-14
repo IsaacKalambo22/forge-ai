@@ -59,6 +59,20 @@ trade-offs:
 * a client-supplied `assistant` turn is an unverifiable claim. Server-side transcript
   storage is deferred until persistence and identity exist.
 
+## Error handling boundary (added in Experiment 004)
+
+The HTTP status line is committed with the first byte of the response, so a streaming
+endpoint has two distinct error régimes:
+
+```text
+parse body · validate messages · validate persona   → real status codes (400)
+──────────────── first byte of the response ────────────────
+model call · deltas · finalMessage()                → HTTP 200, errors as {type:"error"}
+```
+
+Everything cheap to check belongs above that line, while a status code is still
+available to us.
+
 ## Engineering principle
 
 Understand each layer before introducing abstraction.

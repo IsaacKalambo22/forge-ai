@@ -140,6 +140,7 @@ User
 Browser  ·  chat.tsx ("use client")          ← untrusted: the user controls this
   │
   │  POST /api/chat   { messages[], persona }
+  │  ← NDJSON stream: {type:"text"} … {type:"done"}
   ▼ ─────────────────────────────────────────  trust boundary
 Server   ·  app/api/chat/route.ts            ← trusted: the user cannot read or edit this
   │
@@ -174,11 +175,12 @@ is the deliverable; the code is the apparatus.
 | 001 | [Basic LLM Request](experiments/001-basic-llm/README.md) | 🟢 Working — UI + route verified; real-key questions open |
 | 002 | [Prompt Engineering (system prompts)](experiments/002-prompt-engineering/README.md) | 🟢 Working — server-owned personas; model behaviour unverified |
 | 003 | [Conversation History](experiments/003-conversation-history/README.md) | 🟢 Working — stateless API, client-held history, server turn cap |
-| 004 | Streaming | ⚪ Next |
-| 005 | Error handling & status codes | ⚪ (partly done in 001) |
-| 006 | Structured outputs | ⚪ |
-| 007 | Token usage & cost | ⚪ |
-| 008 | Model selection | ⚪ |
+| 004 | [Streaming](experiments/004-streaming/README.md) | 🟢 Working — NDJSON stream; real deltas unobserved |
+| 005 | Structured outputs | ⚪ Next |
+| 006 | Tool calling | ⚪ |
+| 007 | Embeddings | ⚪ |
+| 008 | RAG | ⚪ |
+| 009 | Agents | ⚪ |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

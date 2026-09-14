@@ -22,3 +22,15 @@ export function isChatMessage(value: unknown): value is ChatMessage {
     content.trim() !== ""
   );
 }
+
+// One of these is sent per line of the NDJSON stream. A discriminated union, so
+// the browser can `switch` on `type` and TypeScript checks every branch.
+export type StreamEvent =
+  | { type: "text"; text: string }
+  | {
+      type: "done";
+      usage: Anthropic.Usage;
+      stop_reason: string | null;
+      model: string;
+    }
+  | { type: "error"; error: string };
