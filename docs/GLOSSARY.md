@@ -35,3 +35,13 @@ static page into an interactive one.
 
 **Content block** — the Anthropic API returns `content` as an *array* of typed blocks
 (`text`, and later `thinking` / `tool_use`), never a bare string.
+
+**System prompt** — the top-level `system` parameter on `messages.create()`. A standing
+instruction applied to every turn, separate from the `messages` array. Sets role, tone,
+format and limits.
+
+**Allowlist** — validating input against a fixed set of known-good values rather than
+trying to filter out bad ones. The client names a choice; the server owns what it means.
+
+**`server-only`** — a Next.js import that makes a module a build error if a Client
+Component pulls it in. Requires no npm install; Next resolves it internally.

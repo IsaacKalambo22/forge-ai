@@ -2,13 +2,17 @@
 
 import { useState } from "react";
 
+import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
+
 type Exchange = {
   question: string;
   answer: string;
+  persona: PersonaId;
 };
 
 export default function Chat() {
   const [input, setInput] = useState("");
+  const [persona, setPersona] = useState<PersonaId>("default");
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +29,9 @@ export default function Chat() {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: question }),
+      // Only the persona *id* crosses the boundary. The prompt text itself
+      // never leaves the server.
+      body: JSON.stringify({ message: question, persona }),
     });
 
     const data = await response.json();
@@ -43,7 +49,7 @@ export default function Chat() {
       .map((block: { text: string }) => block.text)
       .join("\n");
 
-    setExchanges((previous) => [...previous, { question, answer }]);
+    setExchanges((previous) => [...previous, { question, answer, persona }]);
     setInput("");
     setLoading(false);
   }
@@ -55,7 +61,9 @@ export default function Chat() {
           <div key={index} className="flex flex-col gap-2">
             <p className="text-sm font-medium text-zinc-500">You</p>
             <p className="whitespace-pre-wrap">{exchange.question}</p>
-            <p className="text-sm font-medium text-zinc-500">Claude</p>
+            <p className="text-sm font-medium text-zinc-500">
+              Claude · {exchange.persona}
+            </p>
             <p className="whitespace-pre-wrap">{exchange.answer}</p>
           </div>
         ))}
@@ -68,6 +76,17 @@ export default function Chat() {
       )}
 
       <form onSubmit={send} className="flex gap-2">
+        <select
+          value={persona}
+          onChange={(event) => setPersona(event.target.value as PersonaId)}
+          className="rounded border border-zinc-300 px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          {PERSONA_IDS.map((id) => (
+            <option key={id} value={id}>
+              {id}
+            </option>
+          ))}
+        </select>
         <input
           value={input}
           onChange={(event) => setInput(event.target.value)}

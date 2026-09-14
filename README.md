@@ -123,7 +123,8 @@ src/
 │       └── chat/
 │           └── route.ts      # POST /api/chat — the trust boundary
 └── lib/
-    └── ai.ts                 # askClaude() — the only file that knows we use Anthropic
+    ├── personas.ts           # persona ids — safe for the browser
+    └── ai.ts                 # "server-only": prompt text, SDK, API key
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
@@ -170,8 +171,8 @@ is the deliverable; the code is the apparatus.
 | # | Experiment | Status |
 | --- | --- | --- |
 | 001 | [Basic LLM Request](experiments/001-basic-llm/README.md) | 🟢 Working — UI + route verified; real-key questions open |
-| 002 | System prompts | ⚪ Next |
-| 003 | Conversation history | ⚪ |
+| 002 | [Prompt Engineering (system prompts)](experiments/002-prompt-engineering/README.md) | 🟢 Working — server-owned personas; model behaviour unverified |
+| 003 | Conversation history | ⚪ Next |
 | 004 | Streaming | ⚪ |
 | 005 | Error handling & status codes | ⚪ (partly done in 001) |
 | 006 | Structured outputs | ⚪ |

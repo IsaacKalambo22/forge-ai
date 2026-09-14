@@ -35,6 +35,17 @@ Build a minimal AI application that allows me to understand how an application c
 
 These will be introduced later as separate engineering challenges.
 
+## Trust levels of modules (added in Experiment 002)
+
+```text
+src/lib/personas.ts   ids only                     → either side may import
+src/lib/ai.ts         prompt text, SDK, API key    → "server-only", build error if
+                                                     imported from a Client Component
+```
+
+An import pulls in the whole module and its import graph — trust level is a property of
+the *file*, not of the value you named. Split files by what may reach the browser.
+
 ## Engineering principle
 
 Understand each layer before introducing abstraction.

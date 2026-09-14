@@ -1,4 +1,5 @@
 import { askClaude } from "@/lib/ai";
+import { isPersonaId } from "@/lib/personas";
 
 export async function POST(request: Request) {
   // Experiment 001 found that a malformed or `null` body throws *before* the
@@ -10,14 +11,24 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const message = (body as { message?: unknown })?.message;
+  const { message, persona } = (body ?? {}) as {
+    message?: unknown;
+    persona?: unknown;
+  };
 
   if (typeof message !== "string" || message.trim() === "") {
     return Response.json({ error: "Message is required" }, { status: 400 });
   }
 
+  // Allowlist, not free text: the client names a persona, the server owns it.
+  // An unknown id is rejected rather than silently defaulted, so a typo in the
+  // UI is visible instead of quietly changing the model's behaviour.
+  if (persona !== undefined && !isPersonaId(persona)) {
+    return Response.json({ error: "Unknown persona" }, { status: 400 });
+  }
+
   try {
-    const response = await askClaude(message);
+    const response = await askClaude(message, persona ?? "default");
     return Response.json(response);
   } catch (error) {
     // Log the real error server-side; send the client a safe summary.
