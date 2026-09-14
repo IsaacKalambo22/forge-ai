@@ -6,12 +6,24 @@ import type { StreamEvent } from "@/lib/messages";
 
 type Source = { heading: string; file: string; score: number };
 
+// The two architectures side by side:
+//   ask   — retrieve once, up front, then answer (Experiment 008)
+//   agent — the model decides what to search for, and may search again (009)
+const MODES = {
+  ask: { path: "/api/ask", label: "one-shot RAG" },
+  agent: { path: "/api/agent", label: "agent" },
+} as const;
+
+type Mode = keyof typeof MODES;
+
 export default function Ask() {
   const [question, setQuestion] = useState("");
   const [sources, setSources] = useState<Source[] | null>(null);
   const [answer, setAnswer] = useState("");
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("ask");
+  const [trace, setTrace] = useState<string[]>([]);
 
   async function run(event: React.FormEvent) {
     event.preventDefault();
@@ -21,8 +33,9 @@ export default function Ask() {
     setError(null);
     setSources(null);
     setAnswer("");
+    setTrace([]);
 
-    const response = await fetch("/api/ask", {
+    const response = await fetch(MODES[mode].path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
@@ -60,6 +73,17 @@ export default function Ask() {
         } else if (event.type === "text") {
           text += event.text;
           setAnswer(text);
+        } else if (event.type === "tool_use") {
+          setTrace((p) => [...p, `→ ${event.name}(${JSON.stringify(event.input)})`]);
+        } else if (event.type === "tool_result") {
+          setTrace((p) => [
+            ...p,
+            `${event.is_error ? "✗" : "←"} ${event.name}: ${event.output.slice(0, 90)}…`,
+          ]);
+        } else if (event.type === "step") {
+          setTrace((p) => [...p, `— step ${event.index} complete`]);
+        } else if (event.type === "stopped") {
+          setTrace((p) => [...p, `■ ${event.detail}`]);
         } else if (event.type === "error") {
           setError(event.error);
         }
@@ -76,6 +100,17 @@ export default function Ask() {
       </h2>
 
       <form onSubmit={run} className="flex gap-2">
+        <select
+          value={mode}
+          onChange={(event) => setMode(event.target.value as Mode)}
+          className="rounded border border-zinc-300 px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+        >
+          {Object.entries(MODES).map(([key, { label }]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
         <input
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
@@ -100,6 +135,14 @@ export default function Ask() {
             </li>
           ))}
         </ol>
+      )}
+
+      {trace.length > 0 && (
+        <ul className="rounded border border-zinc-300 p-3 font-mono text-xs text-zinc-500 dark:border-zinc-700">
+          {trace.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
       )}
 
       {answer !== "" && <p className="whitespace-pre-wrap">{answer}</p>}

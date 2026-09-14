@@ -121,6 +121,8 @@ src/
 │   ├── chat.tsx              # Client Component — input, state, fetch
 │   ├── ask.tsx               # Client Component — RAG over the notebook
 │   └── api/
+│       ├── agent/
+│       │   └── route.ts      # POST /api/agent — model chooses its own context
 │       ├── ask/
 │       │   └── route.ts      # POST /api/ask — RAG: retrieve, prompt, stream
 │       ├── search/
@@ -136,6 +138,7 @@ src/
     ├── expression.ts         # pure arithmetic parser — no imports, no privileges
     ├── vector.ts             # cosine similarity + topK — no imports, no privileges
     ├── chunk.ts              # markdown chunker — no imports, no privileges
+    ├── agent.ts              # stopping policy — no imports, no privileges
     ├── knowledge.ts          # "server-only": the notebook index (65 chunks)
     ├── corpus.ts             # the searchable lessons — client-safe
     ├── embeddings.ts         # "server-only": local embedding model
@@ -196,7 +199,7 @@ is the deliverable; the code is the apparatus.
 | 006 | [Tool Calling](experiments/006-tool-calling/README.md) | 🟢 Working — loop built, evaluator 28/28; loop never executed |
 | 007 | [Embeddings](experiments/007-embeddings/README.md) | 🟢 **Verified end-to-end** — local model, semantic search working |
 | 008 | [RAG](experiments/008-rag/README.md) | 🟢 Retrieval **verified** (top-4 5/7→7/7); generation unobserved |
-| 009 | Agents | ⚪ Next |
+| 009 | [Agent](experiments/009-agent/README.md) | 🟢 Loop built, stopping policy 12/12; loop never executed |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

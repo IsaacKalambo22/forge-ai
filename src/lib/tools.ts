@@ -6,6 +6,7 @@ import "server-only";
 import type Anthropic from "@anthropic-ai/sdk";
 
 import { evaluateExpression } from "./expression";
+import { retrieve } from "./knowledge";
 
 // An unbounded tool loop is a runaway cost bug and a denial-of-service on
 // ourselves: each iteration is a paid request, and the model decides whether
@@ -24,6 +25,25 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       "what time or date it is, or asks about anything relative to now — the " +
       "model has no clock of its own.",
     input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "search_notebook",
+    description:
+      "Search this project's engineering notebook and return the most relevant " +
+      "passages. Call this whenever the user asks about anything recorded in the " +
+      "notebook — experiments, findings, lessons, measurements or decisions. " +
+      "Prefer calling it more than once with different wording if the first " +
+      "results do not contain the answer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "What to look for, phrased as a description of the subject",
+        },
+      },
+      required: ["query"],
+    },
   },
   {
     name: "calculate",
@@ -51,6 +71,33 @@ export async function executeTool(name: string, input: unknown): Promise<ToolRes
     switch (name) {
       case "get_current_time":
         return { output: new Date().toISOString(), is_error: false };
+
+      case "search_notebook": {
+        const { query } = (input ?? {}) as { query?: unknown };
+        if (typeof query !== "string" || query.trim() === "") {
+          return { output: "search_notebook requires a non-empty 'query' string", is_error: true };
+        }
+        if (query.length > 500) {
+          return { output: "Query too long (max 500 characters)", is_error: true };
+        }
+
+        const results = await retrieve(query.trim(), 3);
+        if (results.length === 0) {
+          return { output: "No passages found.", is_error: false };
+        }
+
+        // Returned as fenced, labelled passages for the same reason as in
+        // Experiment 008: this is retrieved DATA entering the conversation.
+        return {
+          output: results
+            .map(
+              ({ item, score }) =>
+                `<passage source="${item.file}" heading="${item.heading}" score="${score.toFixed(3)}">\n${item.text}\n</passage>`,
+            )
+            .join("\n\n"),
+          is_error: false,
+        };
+      }
 
       case "calculate": {
         // The model is supposed to send { expression: string }. "Supposed to"

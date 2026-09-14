@@ -115,3 +115,12 @@ answer anything measurably improved recall here, more than any model change.
 
 **Retrieval evaluation** — scoring a fixed set of queries against the passages that ought
 to answer them. Without it, "retrieval feels good" is not a claim.
+
+**Agent** — a loop in which the model chooses its own context and next action, rather than
+answering one question from context it was handed.
+
+**Step budget** — a ceiling on agent iterations. Each step is a paid request and the
+model, not the application, decides whether to continue.
+
+**No-progress detection** — stopping when the model repeats the same tool calls. A stuck
+model will otherwise spend the entire budget.

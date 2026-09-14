@@ -39,4 +39,6 @@ export type StreamEvent =
     }
   | { type: "tool_use"; name: string; input: unknown }
   | { type: "tool_result"; name: string; output: string; is_error: boolean }
+  | { type: "step"; index: number; calls: string[] }
+  | { type: "stopped"; reason: "done" | "budget" | "no_progress"; detail: string }
   | { type: "error"; error: string };
