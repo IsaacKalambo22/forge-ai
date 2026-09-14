@@ -103,3 +103,15 @@ with no keywords in common with the query.
 
 **top-k** — returning the k closest results rather than only the best one, because the
 best one is often wrong and the right one is usually nearby.
+
+**RAG (Retrieval-Augmented Generation)** — retrieving relevant passages and putting them
+in the prompt so the model can answer from documents it was never trained on.
+
+**Chunking** — splitting a document into retrievable pieces. Splitting on the author's
+own boundaries (headings) beats splitting on a character count.
+
+**Corpus curation** — deciding what belongs in the index. Removing passages that cannot
+answer anything measurably improved recall here, more than any model change.
+
+**Retrieval evaluation** — scoring a fixed set of queries against the passages that ought
+to answer them. Without it, "retrieval feels good" is not a claim.

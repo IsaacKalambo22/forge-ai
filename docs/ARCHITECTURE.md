@@ -91,6 +91,23 @@ server's privileges. Two structural rules follow:
 The loop is capped at `MAX_TOOL_ITERATIONS`, because each pass is a paid request and the
 model, not the application, decides whether to continue.
 
+## Retrieval (added in Experiment 008)
+
+```text
+notebook markdown → chunk on headings → embed (local model) → cosine top-k
+                                                                   ↓
+                                    fenced <passage> blocks in the SYSTEM prompt
+```
+
+The index is built once at startup and cached behind a promise. Sections that cannot
+answer a question (`Questions`, `Future questions`, `Objective`) are excluded — measured,
+that took top-4 recall from 5/7 to 7/7.
+
+Retrieved text enters the system prompt, the highest-authority channel in the request.
+It is fenced, labelled with its source, and explicitly demoted to data. That matters
+little while the corpus is this repo's own files and becomes the primary threat the
+moment it is not.
+
 ## Engineering principle
 
 Understand each layer before introducing abstraction.
