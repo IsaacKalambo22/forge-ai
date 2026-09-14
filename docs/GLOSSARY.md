@@ -124,3 +124,15 @@ model, not the application, decides whether to continue.
 
 **No-progress detection** — stopping when the model repeats the same tool calls. A stuck
 model will otherwise spend the entire budget.
+
+**Prompt injection** — content reaching the model that argues it should ignore its
+instructions. Retrieval is a delivery mechanism for it.
+
+**Nonce delimiter** — a random per-request tag suffix around untrusted text. The attacker
+writes their payload before the nonce exists, so they cannot close the block.
+
+**Retrieval poisoning** — crafting a document so it gets retrieved for queries it has
+nothing to do with. Happens before any prompt is built.
+
+**Structural vs behavioural defence** — a structural defence holds whether or not the
+model cooperates; a behavioural one is an instruction, and is only ever a request.

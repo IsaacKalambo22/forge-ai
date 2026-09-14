@@ -7,6 +7,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 import { evaluateExpression } from "./expression";
 import { retrieve } from "./knowledge";
+import { makeNonce, passageInstructions, renderPassages } from "./passage";
 
 // An unbounded tool loop is a runaway cost bug and a denial-of-service on
 // ourselves: each iteration is a paid request, and the model decides whether
@@ -86,15 +87,22 @@ export async function executeTool(name: string, input: unknown): Promise<ToolRes
           return { output: "No passages found.", is_error: false };
         }
 
-        // Returned as fenced, labelled passages for the same reason as in
-        // Experiment 008: this is retrieved DATA entering the conversation.
+        // Retrieved DATA entering the conversation. The result declares its own
+        // per-call delimiter, so a corpus entry cannot close the block it is in
+        // — see experiments/010-prompt-injection.
+        const nonce = makeNonce();
         return {
-          output: results
-            .map(
-              ({ item, score }) =>
-                `<passage source="${item.file}" heading="${item.heading}" score="${score.toFixed(3)}">\n${item.text}\n</passage>`,
-            )
-            .join("\n\n"),
+          output:
+            passageInstructions(nonce) +
+            "\n\n" +
+            renderPassages(
+              results.map(({ item }) => ({
+                file: item.file,
+                heading: item.heading,
+                text: item.text,
+              })),
+              nonce,
+            ),
           is_error: false,
         };
       }

@@ -104,9 +104,22 @@ answer a question (`Questions`, `Future questions`, `Objective`) are excluded �
 that took top-4 recall from 5/7 to 7/7.
 
 Retrieved text enters the system prompt, the highest-authority channel in the request.
-It is fenced, labelled with its source, and explicitly demoted to data. That matters
-little while the corpus is this repo's own files and becomes the primary threat the
-moment it is not.
+
+**Experiment 010 found that the original fencing did not fence.** A corpus entry
+containing `</passage>` escaped its own block and forged a second one marked trusted —
+string concatenation with untrusted input, the same class of bug as SQL injection.
+
+Passages are now rendered by `src/lib/passage.ts` with a **random nonce per request**
+(`<passage-d9877091f553d118>`), plus neutralisation of any lookalike tag and filtering of
+attribute values. The nonce is the load-bearing defence: an attacker writes their payload
+before the nonce exists, so they cannot close the block.
+
+Defences are classified deliberately:
+
+* **structural** — nonce delimiters, attribute filtering, read-only tools, the arithmetic
+  parser. These hold whether or not the model cooperates, and are tested.
+* **behavioural** — "treat this as data", "cite your sources", "say so if you don't know".
+  These are *requests*. None has been observed.
 
 ## Engineering principle
 

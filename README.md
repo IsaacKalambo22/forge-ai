@@ -139,6 +139,7 @@ src/
     ├── vector.ts             # cosine similarity + topK — no imports, no privileges
     ├── chunk.ts              # markdown chunker — no imports, no privileges
     ├── agent.ts              # stopping policy — no imports, no privileges
+    ├── passage.ts            # nonce-fenced passage rendering — no imports
     ├── knowledge.ts          # "server-only": the notebook index (65 chunks)
     ├── corpus.ts             # the searchable lessons — client-safe
     ├── embeddings.ts         # "server-only": local embedding model
@@ -200,6 +201,7 @@ is the deliverable; the code is the apparatus.
 | 007 | [Embeddings](experiments/007-embeddings/README.md) | 🟢 **Verified end-to-end** — local model, semantic search working |
 | 008 | [RAG](experiments/008-rag/README.md) | 🟢 Retrieval **verified** (top-4 5/7→7/7); generation unobserved |
 | 009 | [Agent](experiments/009-agent/README.md) | 🟢 Loop built, stopping policy 12/12; loop never executed |
+| 010 | [Prompt Injection](experiments/010-prompt-injection/README.md) | 🟢 **Real vulnerability found and fixed** — 0/4 → 12/12 |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
