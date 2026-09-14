@@ -33,4 +33,6 @@ export type StreamEvent =
       stop_reason: string | null;
       model: string;
     }
+  | { type: "tool_use"; name: string; input: unknown }
+  | { type: "tool_result"; name: string; output: string; is_error: boolean }
   | { type: "error"; error: string };

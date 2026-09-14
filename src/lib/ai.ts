@@ -7,8 +7,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
 import { ConversationAnalysisSchema } from "./analysis";
-import type { ChatMessage } from "./messages";
+import type { ChatMessage, StreamEvent } from "./messages";
 import type { PersonaId } from "./personas";
+import { MAX_TOOL_ITERATIONS, TOOL_DEFINITIONS, executeTool } from "./tools";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -84,4 +85,88 @@ export async function analyzeConversation(messages: ChatMessage[]) {
   });
 
   return response;
+}
+
+// The agentic loop, written out by hand rather than using the SDK's
+// toolRunner(), because the loop IS the thing being learned here. In
+// production the runner is the right choice — see experiments/006-tool-calling.
+//
+// An async generator: it yields events as they happen, so the route can write
+// them straight to the NDJSON stream without buffering the whole run.
+export async function* runToolLoop(
+  messages: ChatMessage[],
+  persona: PersonaId = "default",
+): AsyncGenerator<StreamEvent> {
+  // Working history: starts as the conversation, then grows with the model's
+  // tool requests and our results. These extra turns are NOT sent back to the
+  // browser as conversation — they are the loop's internal scratch space.
+  const working: Anthropic.MessageParam[] = [...messages];
+
+  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+    const stream = anthropic.messages.stream({
+      model: "claude-opus-5",
+      max_tokens: 1024,
+      system: PROMPTS[persona],
+      tools: TOOL_DEFINITIONS,
+      messages: working,
+    });
+
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        yield { type: "text", text: event.delta.text };
+      }
+    }
+
+    const final = await stream.finalMessage();
+
+    // Anything other than "tool_use" means the model is finished talking.
+    if (final.stop_reason !== "tool_use") {
+      yield {
+        type: "done",
+        usage: final.usage,
+        stop_reason: final.stop_reason,
+        model: final.model,
+      };
+      return;
+    }
+
+    // The assistant's turn must be appended verbatim — including the tool_use
+    // blocks. Their `id` is what our results are matched against.
+    working.push({ role: "assistant", content: final.content });
+
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+    for (const block of final.content) {
+      if (block.type !== "tool_use") continue;
+
+      yield { type: "tool_use", name: block.name, input: block.input };
+
+      const result = await executeTool(block.name, block.input);
+
+      yield {
+        type: "tool_result",
+        name: block.name,
+        output: result.output,
+        is_error: result.is_error,
+      };
+
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: result.output,
+        // A failed tool is reported, never dropped. The model needs to know it
+        // failed so it can correct itself or explain.
+        is_error: result.is_error,
+      });
+    }
+
+    // ALL results go back in ONE user message. Splitting them across several
+    // messages teaches the model to stop making parallel tool calls.
+    working.push({ role: "user", content: toolResults });
+  }
+
+  yield {
+    type: "error",
+    error: `Tool loop exceeded ${MAX_TOOL_ITERATIONS} iterations`,
+  };
 }

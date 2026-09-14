@@ -1,4 +1,4 @@
-import { streamClaude } from "@/lib/ai";
+import { runToolLoop } from "@/lib/ai";
 import { MAX_TURNS, isChatMessage } from "@/lib/messages";
 import { isPersonaId } from "@/lib/personas";
 import type { StreamEvent } from "@/lib/messages";
@@ -66,28 +66,14 @@ export async function POST(request: Request) {
         controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
 
       try {
-        const stream = streamClaude(messages, persona ?? "default");
-
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            send({ type: "text", text: event.delta.text });
-          }
+        // The loop yields text deltas, tool calls, tool results and a final
+        // done event. The route just forwards them — all the mechanics live
+        // in runToolLoop().
+        for await (const event of runToolLoop(messages, persona ?? "default")) {
+          send(event);
         }
-
-        // The stream object also assembles the complete message for us, which
-        // is where usage and stop_reason live — they are not in the deltas.
-        const final = await stream.finalMessage();
-        send({
-          type: "done",
-          usage: final.usage,
-          stop_reason: final.stop_reason,
-          model: final.model,
-        });
       } catch (error) {
-        console.error("streamClaude failed:", error);
+        console.error("runToolLoop failed:", error);
         const detail = error instanceof Error ? error.message : "Unknown error";
         send({ type: "error", error: `Model request failed: ${detail}` });
       } finally {

@@ -22,6 +22,9 @@ export default function Chat() {
   // `analysis.title` is a field the UI can use, not prose to be parsed.
   const [analysis, setAnalysis] = useState<ConversationAnalysis | null>(null);
   const [analysing, setAnalysing] = useState(false);
+  // Tool activity for the turn in progress. Showing it is the point: the loop
+  // is invisible otherwise, and an agent you cannot watch is one you cannot debug.
+  const [activity, setActivity] = useState<string[]>([]);
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -38,6 +41,7 @@ export default function Chat() {
 
     setStreaming("");
     setMeta(null);
+    setActivity([]);
 
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -84,6 +88,16 @@ export default function Chat() {
             `${event.usage.input_tokens} in / ${event.usage.output_tokens} out · ` +
               `stop_reason: ${event.stop_reason} · ${event.model}`,
           );
+        } else if (event.type === "tool_use") {
+          setActivity((previous) => [
+            ...previous,
+            `→ ${event.name}(${JSON.stringify(event.input)})`,
+          ]);
+        } else if (event.type === "tool_result") {
+          setActivity((previous) => [
+            ...previous,
+            `${event.is_error ? "✗" : "←"} ${event.name}: ${event.output}`,
+          ]);
         } else if (event.type === "error") {
           // Reported on an HTTP 200: the status was already sent.
           setError(event.error);
@@ -155,6 +169,14 @@ export default function Chat() {
           </div>
         ))}
       </div>
+
+      {activity.length > 0 && (
+        <ul className="rounded border border-zinc-300 p-3 font-mono text-xs text-zinc-500 dark:border-zinc-700">
+          {activity.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      )}
 
       {streaming !== "" && (
         <div className="flex flex-col gap-1">

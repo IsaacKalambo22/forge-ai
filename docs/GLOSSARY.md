@@ -78,3 +78,15 @@ false` forbids extra keys; `required` lists fields that must be present.
 
 **Strict** — a schema the model's output is guaranteed to conform to, rather than merely
 encouraged toward.
+
+**Tool calling** — the model ends its turn with `stop_reason: "tool_use"` to request that
+your code run something. It cannot execute anything itself; it can only ask.
+
+**Agentic loop** — request → execute tool → append result → send again, until the model
+stops asking. Each pass is a paid API request.
+
+**`tool_use` / `tool_result`** — paired content blocks. The `tool_use_id` on a result is
+what matches it to the request.
+
+**`is_error`** — a flag on a tool result telling the model the tool failed, so it can
+correct itself rather than treating garbage as fact.

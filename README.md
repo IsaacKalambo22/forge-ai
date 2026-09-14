@@ -128,7 +128,9 @@ src/
     ├── analysis.ts           # zod schema + inferred type — client-safe
     ├── messages.ts           # ChatMessage type, MAX_TURNS, validator — client-safe
     ├── personas.ts           # persona ids — safe for the browser
-    └── ai.ts                 # "server-only": prompt text, SDK, API key
+    ├── expression.ts         # pure arithmetic parser — no imports, no privileges
+    ├── tools.ts              # "server-only": tool definitions + execution
+    └── ai.ts                 # "server-only": prompt text, SDK, API key, tool loop
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
@@ -180,8 +182,8 @@ is the deliverable; the code is the apparatus.
 | 003 | [Conversation History](experiments/003-conversation-history/README.md) | 🟢 Working — stateless API, client-held history, server turn cap |
 | 004 | [Streaming](experiments/004-streaming/README.md) | 🟢 Working — NDJSON stream; real deltas unobserved |
 | 005 | [Structured Output](experiments/005-structured-output/README.md) | 🟢 Working — schema verified on the wire; model conformance unobserved |
-| 006 | Tool calling | ⚪ Next |
-| 007 | Embeddings | ⚪ |
+| 006 | [Tool Calling](experiments/006-tool-calling/README.md) | 🟢 Working — loop built, evaluator 28/28; loop never executed |
+| 007 | Embeddings | ⚪ Next |
 | 008 | RAG | ⚪ |
 | 009 | Agents | ⚪ |
 

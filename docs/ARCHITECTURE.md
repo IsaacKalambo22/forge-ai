@@ -73,6 +73,24 @@ model call · deltas · finalMessage()                → HTTP 200, errors as {t
 Everything cheap to check belongs above that line, while a status code is still
 available to us.
 
+## Tool execution (added in Experiment 006)
+
+```text
+user text → model → tool arguments → server-side execution
+```
+
+Tool arguments are user-*influenced* input arriving indirectly, executed with the
+server's privileges. Two structural rules follow:
+
+* pure logic lives in modules with no imports and no privileges (`expression.ts`), so it
+  is exhaustively testable and the privileged surface stays small;
+* a tool must not be able to express anything beyond its purpose. `calculate` uses a
+  parser, never `eval` — measured, `eval` reads the whole environment including the
+  API key.
+
+The loop is capped at `MAX_TOOL_ITERATIONS`, because each pass is a paid request and the
+model, not the application, decides whether to continue.
+
 ## Engineering principle
 
 Understand each layer before introducing abstraction.
