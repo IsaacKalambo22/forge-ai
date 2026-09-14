@@ -120,9 +120,12 @@ src/
 │   ├── page.tsx              # Server Component — renders the chat island
 │   ├── chat.tsx              # Client Component — input, state, fetch
 │   └── api/
+│       ├── analyze/
+│       │   └── route.ts      # POST /api/analyze — structured output, real status codes
 │       └── chat/
-│           └── route.ts      # POST /api/chat — the trust boundary
+│           └── route.ts      # POST /api/chat — the trust boundary, NDJSON stream
 └── lib/
+    ├── analysis.ts           # zod schema + inferred type — client-safe
     ├── messages.ts           # ChatMessage type, MAX_TURNS, validator — client-safe
     ├── personas.ts           # persona ids — safe for the browser
     └── ai.ts                 # "server-only": prompt text, SDK, API key
@@ -176,8 +179,8 @@ is the deliverable; the code is the apparatus.
 | 002 | [Prompt Engineering (system prompts)](experiments/002-prompt-engineering/README.md) | 🟢 Working — server-owned personas; model behaviour unverified |
 | 003 | [Conversation History](experiments/003-conversation-history/README.md) | 🟢 Working — stateless API, client-held history, server turn cap |
 | 004 | [Streaming](experiments/004-streaming/README.md) | 🟢 Working — NDJSON stream; real deltas unobserved |
-| 005 | Structured outputs | ⚪ Next |
-| 006 | Tool calling | ⚪ |
+| 005 | [Structured Output](experiments/005-structured-output/README.md) | 🟢 Working — schema verified on the wire; model conformance unobserved |
+| 006 | Tool calling | ⚪ Next |
 | 007 | Embeddings | ⚪ |
 | 008 | RAG | ⚪ |
 | 009 | Agents | ⚪ |

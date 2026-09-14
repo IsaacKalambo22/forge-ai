@@ -4,7 +4,9 @@
 import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
+import { ConversationAnalysisSchema } from "./analysis";
 import type { ChatMessage } from "./messages";
 import type { PersonaId } from "./personas";
 
@@ -55,6 +57,30 @@ export async function askClaude(
     max_tokens: 1024,
     system: PROMPTS[persona],
     messages,
+  });
+
+  return response;
+}
+
+// Structured output: the model is constrained to the schema, so the result is a
+// typed object rather than prose we would otherwise have to parse with regex.
+// `messages.parse()` validates the response against the schema for us.
+export async function analyzeConversation(messages: ChatMessage[]) {
+  const response = await anthropic.messages.parse({
+    model: "claude-opus-5",
+    max_tokens: 1024,
+    system:
+      "You analyse chat transcripts. Report only what the transcript " +
+      "supports. If there are no open questions, return an empty array.",
+    messages: [
+      {
+        role: "user",
+        content:
+          "Analyse this conversation:\n\n" +
+          messages.map((m) => `${m.role}: ${m.content}`).join("\n"),
+      },
+    ],
+    output_config: { format: zodOutputFormat(ConversationAnalysisSchema) },
   });
 
   return response;

@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { MAX_TURNS, type ChatMessage, type StreamEvent } from "@/lib/messages";
+import type { ConversationAnalysis } from "@/lib/analysis";
 import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
 
 export default function Chat() {
@@ -17,6 +18,10 @@ export default function Chat() {
   // an incomplete turn must not become part of the conversation history.
   const [streaming, setStreaming] = useState("");
   const [meta, setMeta] = useState<string | null>(null);
+  // A typed object, not a string. This is the whole point of structured output:
+  // `analysis.title` is a field the UI can use, not prose to be parsed.
+  const [analysis, setAnalysis] = useState<ConversationAnalysis | null>(null);
+  const [analysing, setAnalysing] = useState(false);
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -94,10 +99,52 @@ export default function Chat() {
     setLoading(false);
   }
 
+  async function analyse() {
+    if (messages.length === 0 || analysing) return;
+
+    setAnalysing(true);
+    setError(null);
+
+    // Not a stream, so a real status code is available here.
+    const response = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setError(data.error ?? `Request failed with ${response.status}`);
+    } else {
+      setAnalysis(data.analysis);
+    }
+
+    setAnalysing(false);
+  }
+
   const remaining = MAX_TURNS - messages.length;
 
   return (
     <div className="flex w-full flex-col gap-6">
+      {analysis && (
+        <div className="rounded border border-zinc-300 p-4 dark:border-zinc-700">
+          <h2 className="font-semibold">{analysis.title}</h2>
+          {analysis.topics.length > 0 && (
+            <p className="mt-2 text-sm text-zinc-500">
+              Topics: {analysis.topics.join(" · ")}
+            </p>
+          )}
+          {analysis.open_questions.length > 0 && (
+            <ul className="mt-2 list-disc pl-5 text-sm text-zinc-500">
+              {analysis.open_questions.map((question, index) => (
+                <li key={index}>{question}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-col gap-4">
         {messages.map((message, index) => (
           <div key={index} className="flex flex-col gap-1">
@@ -150,6 +197,15 @@ export default function Chat() {
           {loading ? "Thinking…" : "Send"}
         </button>
       </form>
+
+      <button
+        type="button"
+        onClick={analyse}
+        disabled={messages.length === 0 || analysing}
+        className="self-start rounded border border-zinc-300 px-3 py-1 text-sm disabled:opacity-50 dark:border-zinc-700"
+      >
+        {analysing ? "Analysing…" : "Analyse conversation"}
+      </button>
 
       <p className="text-sm text-zinc-500">
         {messages.length} messages in context · {remaining} turns before the server

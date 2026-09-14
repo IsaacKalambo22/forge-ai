@@ -69,3 +69,12 @@ the total size is unknown when the headers are written. What makes streaming pos
 
 **Delta** — one incremental piece of a streamed response. Text deltas carry text only;
 totals like `usage` and `stop_reason` arrive at the end.
+
+**Structured output** — constraining the model to return JSON matching a schema
+(`output_config.format`), so the result is a typed object rather than prose.
+
+**JSON Schema** — the vocabulary used to describe that shape. `additionalProperties:
+false` forbids extra keys; `required` lists fields that must be present.
+
+**Strict** — a schema the model's output is guaranteed to conform to, rather than merely
+encouraged toward.
