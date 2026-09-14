@@ -108,6 +108,57 @@ the machine and Anthropic replies `401 invalid x-api-key` (confirmed by the
 `request_id` and Cloudflare headers in the server log) — so the SDK wiring, routing and
 JSON handling are all proven correct. Only the credential is missing.
 
+### Step 2 — the browser UI, and closing the two validation holes
+
+The route now has a UI in front of it: `src/app/page.tsx` (Server Component) renders
+`src/app/chat.tsx` (`"use client"`). The split is the lesson — a page is a Server
+Component by default and ships no JavaScript for itself; only the client island that
+needs `useState` and `onSubmit` is sent to the browser.
+
+Building the UI forced the error handling that Experiment 001 had deliberately skipped.
+**A UI cannot display an error the server never sends.** Both 500-with-empty-body cases
+found earlier were reachable from a text box, so they were fixed rather than deferred:
+
+| Body sent | Before | Now |
+| --- | --- | --- |
+| `null` | 500, empty | 400 `Message is required` |
+| `{"message":` | 500, empty | 400 `Invalid JSON body` |
+| `{"message":"Say hi"}` | 500, empty | 502 `Model request failed: 401 invalid x-api-key` |
+
+Three fixes, three different shapes:
+
+1. `await request.json()` is wrapped in `try/catch` — parse failure is a *client*
+   mistake, so 400, not 500.
+2. `body` is typed `unknown` and read as `(body as { message?: unknown })?.message`.
+   Optional chaining makes the `null` body return `undefined` instead of throwing.
+3. The `askClaude()` call is wrapped in `try/catch` returning **502**, not 500.
+   502 = "I am fine, the service *I* depend on failed." The status code is a piece of
+   information for whoever debugs this later.
+
+Timings were unchanged by the fixes: local rejections 9–19 ms, the Anthropic round trip
+710 ms. Still ~50× cheaper to fail before leaving the machine.
+
+### Finding: the UI looks like a conversation, but the model has no memory
+
+`chat.tsx` accumulates past exchanges in React state and renders them as a list. That
+list lives **only in the browser**. Every submit sends exactly one field —
+`{ message }` — so the model receives the latest question with no history attached.
+
+This is worth staring at: the illusion of conversation is entirely a UI artifact. Ask a
+follow-up like "what did I just say?" and the model cannot answer, because nothing about
+the previous turn was ever transmitted. Conversation history is not a model feature; it
+is something the application must build by resending prior turns. That is Experiment 003.
+
+### Trade-off taken: the provider's error text is forwarded to the browser
+
+The 502 body contains Anthropic's raw message, including `request_id`. That is a
+deliberate development-time choice — it is how the 401 above was diagnosed from `curl`
+without reading the server log. In production this leaks which provider is in use and
+what internally went wrong.
+
+**Deferred — revisit later:** log the detail server-side only and return a generic
+message plus a correlation id. Marked here so it is not forgotten.
+
 ## Lessons
 
 1. **SDK** — a library giving our code a convenient interface for talking to a service.
@@ -132,6 +183,19 @@ JSON handling are all proven correct. Only the credential is missing.
    blocks and tool-use blocks, which this version deliberately excludes.
 10. Validation protects only the code that runs *after* it.
 11. Understand the architecture before introducing abstractions.
+
+12. **Server Component** — runs only on the server, ships no JS for itself.
+    **Client Component** — marked `"use client"`, its code is sent to the browser so
+    React can attach event handlers (hydration). Default to server; opt into client
+    only where interactivity demands it.
+13. An error the server does not send is an error the UI cannot show. Empty 500s are
+    survivable with `curl`; they are invisible in a browser.
+14. Status codes carry meaning: **400** the caller sent something wrong, **502** a
+    service this server depends on failed, **500** this server has a bug.
+15. Reading a property off `null` throws; optional chaining (`?.`) is the one-character
+    fix. Typing the parsed body `unknown` forces the check to be written.
+16. Rendering a list of past exchanges does not create conversation memory. The model
+    only knows what is inside the request that is actually sent.
 
 ## Questions I still don't understand
 

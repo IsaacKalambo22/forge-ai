@@ -101,12 +101,15 @@ Error: 401 {"type":"error","error":{"type":"authentication_error",
 "message":"invalid x-api-key"}}
 ```
 
-The status is not passed through because the route has **no error handling yet** —
-this is deliberate for Experiment 001. Seeing the raw failure is the point; handling
-it is a later experiment.
+**Updated in Step 2:** the route now catches this and returns **HTTP 502** with the
+provider's message, so the failure is visible in the browser instead of only in the
+server log. 502 rather than 500, because the server is fine — the service it depends
+on is not.
 
-Note what the browser received: `500`, and nothing else. The words `invalid x-api-key`
-and the request ID stayed on the server. That is the trust boundary working.
+Forwarding the provider's text is a deliberate development-time trade-off. It is how
+the 401 gets diagnosed from `curl`, but in production it leaks which provider is in use.
+Logging it server-side and returning a correlation id instead is *deferred — revisit
+later*.
 
 ## Project structure
 
@@ -114,7 +117,8 @@ and the request ID stayed on the server. That is the trust boundary working.
 src/
 ├── app/
 │   ├── layout.tsx
-│   ├── page.tsx              # UI — still create-next-app boilerplate
+│   ├── page.tsx              # Server Component — renders the chat island
+│   ├── chat.tsx              # Client Component — input, state, fetch
 │   └── api/
 │       └── chat/
 │           └── route.ts      # POST /api/chat — the trust boundary
@@ -131,7 +135,7 @@ experiments/                  # One directory per experiment, each with its own 
 User
   │
   ▼
-Browser  ·  page.tsx ("use client")          ← untrusted: the user controls this
+Browser  ·  chat.tsx ("use client")          ← untrusted: the user controls this
   │
   │  POST /api/chat   { message }
   ▼ ─────────────────────────────────────────  trust boundary
@@ -165,7 +169,18 @@ is the deliverable; the code is the apparatus.
 
 | # | Experiment | Status |
 | --- | --- | --- |
-| 001 | [Basic LLM Request](experiments/001-basic-llm/README.md) | In progress |
+| 001 | [Basic LLM Request](experiments/001-basic-llm/README.md) | 🟢 Working — UI + route verified; real-key questions open |
+| 002 | System prompts | ⚪ Next |
+| 003 | Conversation history | ⚪ |
+| 004 | Streaming | ⚪ |
+| 005 | Error handling & status codes | ⚪ (partly done in 001) |
+| 006 | Structured outputs | ⚪ |
+| 007 | Token usage & cost | ⚪ |
+| 008 | Model selection | ⚪ |
+
+Beyond the foundation: prompt design → context management → persistence → auth →
+rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
+agents (028–033) → production (034–040).
 
 ### Deliberately out of scope for v0.1
 
