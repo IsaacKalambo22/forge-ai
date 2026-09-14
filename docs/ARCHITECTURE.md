@@ -121,6 +121,29 @@ Defences are classified deliberately:
 * **behavioural** — "treat this as data", "cite your sources", "say so if you don't know".
   These are *requests*. None has been observed.
 
+## Access control (added in Experiment 011)
+
+Every route begins with `guard(request, route)` — before body parsing, and before the
+first byte of any stream.
+
+```text
+authentication   APP_SECRET + Bearer token, constant-time compare
+                 unset in dev  → open
+                 unset in prod → 503, fail closed
+per-caller       token bucket, capacity 20, refill 1/3 per second
+global budget    200 paid requests, refilling over 24h
+```
+
+Cost is weighted by what a route actually spends: `search` 0, `chat`/`analyze`/`ask` 1,
+`agent` **6** (one call can be six paid requests). Free routes still cost 1 against the
+per-caller limit, because CPU is a resource too.
+
+State is in memory: it resets on restart and is not shared between instances. This bounds
+accidents and casual abuse, not a determined attacker against a scaled deployment.
+
+A shared secret cannot authenticate the browser — the browser would have to hold it, which
+is Experiment 001's lesson. Session authentication is the missing piece.
+
 ## Engineering principle
 
 Understand each layer before introducing abstraction.

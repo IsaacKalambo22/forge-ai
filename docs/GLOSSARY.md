@@ -136,3 +136,16 @@ nothing to do with. Happens before any prompt is built.
 
 **Structural vs behavioural defence** — a structural defence holds whether or not the
 model cooperates; a behavioural one is an instruction, and is only ever a request.
+
+**Token bucket** — a rate limiter holding N tokens that refill continuously. Preferred to
+a fixed window, which permits double the intended rate across its boundary.
+
+**Fail closed** — refusing to serve when configuration is missing, rather than serving
+unprotected. An unset secret in production is a misconfiguration, not permission.
+
+**Constant-time comparison** — comparing secrets so that the time taken does not reveal
+how many bytes matched.
+
+**Session** — proof of identity the server can verify but the client cannot forge. What a
+browser needs, and what a shared secret cannot provide, because the browser would have to
+hold the secret.

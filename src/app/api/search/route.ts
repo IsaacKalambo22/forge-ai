@@ -1,8 +1,14 @@
+import { guard } from "@/lib/guard";
 import { searchLessons } from "@/lib/search";
 
 const MAX_QUERY_LENGTH = 500;
 
 export async function POST(request: Request) {
+  // Auth, rate limit and budget — before ANY work, and before the first
+  // byte, so a real status code is still available (Experiment 004).
+  const denied = guard(request, "search");
+  if (denied !== null) return denied;
+
   let body: unknown;
   try {
     body = await request.json();

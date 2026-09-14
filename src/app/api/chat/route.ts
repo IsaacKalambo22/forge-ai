@@ -1,9 +1,15 @@
+import { guard } from "@/lib/guard";
 import { runToolLoop } from "@/lib/ai";
 import { MAX_TURNS, isChatMessage } from "@/lib/messages";
 import { isPersonaId } from "@/lib/personas";
 import type { StreamEvent } from "@/lib/messages";
 
 export async function POST(request: Request) {
+  // Auth, rate limit and budget — before ANY work, and before the first
+  // byte, so a real status code is still available (Experiment 004).
+  const denied = guard(request, "chat");
+  if (denied !== null) return denied;
+
   // Experiment 001 found that a malformed or `null` body throws *before* the
   // validation below ever runs, producing a 500 with an empty response body.
   let body: unknown;
