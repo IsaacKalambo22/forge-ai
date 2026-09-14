@@ -5,6 +5,7 @@ import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
 
+import type { ChatMessage } from "./messages";
 import type { PersonaId } from "./personas";
 
 const anthropic = new Anthropic({
@@ -24,19 +25,20 @@ const PROMPTS: Record<PersonaId, string> = {
     "solves. Prefer concrete examples over abstractions.",
 };
 
-export async function askClaude(message: string, persona: PersonaId = "default") {
+// `messages` is the ENTIRE conversation, not just the newest turn. The API is
+// stateless: it remembers nothing between calls, so context is something this
+// application rebuilds and resends every single time.
+export async function askClaude(
+  messages: ChatMessage[],
+  persona: PersonaId = "default",
+) {
   const response = await anthropic.messages.create({
     model: "claude-opus-5",
     // Deliberately low for Experiment 001's open question Q7: a small ceiling
     // makes `stop_reason` flip from "end_turn" to "max_tokens" observable.
     max_tokens: 1024,
     system: PROMPTS[persona],
-    messages: [
-      {
-        role: "user",
-        content: message,
-      },
-    ],
+    messages,
   });
 
   return response;

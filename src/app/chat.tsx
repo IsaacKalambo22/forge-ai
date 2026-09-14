@@ -2,18 +2,15 @@
 
 import { useState } from "react";
 
+import { MAX_TURNS, type ChatMessage } from "@/lib/messages";
 import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
-
-type Exchange = {
-  question: string;
-  answer: string;
-  persona: PersonaId;
-};
 
 export default function Chat() {
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState<PersonaId>("default");
-  const [exchanges, setExchanges] = useState<Exchange[]>([]);
+  // This array IS the conversation. The API remembers nothing, so whatever is
+  // in here — and only what is in here — is what the model will ever know.
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,15 +20,19 @@ export default function Chat() {
     const question = input.trim();
     if (question === "" || loading) return;
 
+    const next: ChatMessage[] = [...messages, { role: "user", content: question }];
+
+    setMessages(next);
+    setInput("");
     setLoading(true);
     setError(null);
 
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // Only the persona *id* crosses the boundary. The prompt text itself
-      // never leaves the server.
-      body: JSON.stringify({ message: question, persona }),
+      // The WHOLE conversation goes every time, not just the new question.
+      // Only the persona *id* crosses the boundary; the prompt text never does.
+      body: JSON.stringify({ messages: next, persona }),
     });
 
     const data = await response.json();
@@ -49,22 +50,23 @@ export default function Chat() {
       .map((block: { text: string }) => block.text)
       .join("\n");
 
-    setExchanges((previous) => [...previous, { question, answer, persona }]);
-    setInput("");
+    // The assistant's reply must be appended too — otherwise the next request
+    // sends questions with no answers between them and the model loses the thread.
+    setMessages((previous) => [...previous, { role: "assistant", content: answer }]);
     setLoading(false);
   }
 
+  const remaining = MAX_TURNS - messages.length;
+
   return (
     <div className="flex w-full flex-col gap-6">
-      <div className="flex flex-col gap-6">
-        {exchanges.map((exchange, index) => (
-          <div key={index} className="flex flex-col gap-2">
-            <p className="text-sm font-medium text-zinc-500">You</p>
-            <p className="whitespace-pre-wrap">{exchange.question}</p>
+      <div className="flex flex-col gap-4">
+        {messages.map((message, index) => (
+          <div key={index} className="flex flex-col gap-1">
             <p className="text-sm font-medium text-zinc-500">
-              Claude · {exchange.persona}
+              {message.role === "user" ? "You" : `Claude · ${persona}`}
             </p>
-            <p className="whitespace-pre-wrap">{exchange.answer}</p>
+            <p className="whitespace-pre-wrap">{message.content}</p>
           </div>
         ))}
       </div>
@@ -101,6 +103,11 @@ export default function Chat() {
           {loading ? "Thinking…" : "Send"}
         </button>
       </form>
+
+      <p className="text-sm text-zinc-500">
+        {messages.length} messages in context · {remaining} turns before the server
+        cap. Every one of them is resent, and re-billed, on every request.
+      </p>
     </div>
   );
 }

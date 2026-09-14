@@ -123,6 +123,7 @@ src/
 │       └── chat/
 │           └── route.ts      # POST /api/chat — the trust boundary
 └── lib/
+    ├── messages.ts           # ChatMessage type, MAX_TURNS, validator — client-safe
     ├── personas.ts           # persona ids — safe for the browser
     └── ai.ts                 # "server-only": prompt text, SDK, API key
 
@@ -138,7 +139,7 @@ User
   ▼
 Browser  ·  chat.tsx ("use client")          ← untrusted: the user controls this
   │
-  │  POST /api/chat   { message }
+  │  POST /api/chat   { messages[], persona }
   ▼ ─────────────────────────────────────────  trust boundary
 Server   ·  app/api/chat/route.ts            ← trusted: the user cannot read or edit this
   │
@@ -172,8 +173,8 @@ is the deliverable; the code is the apparatus.
 | --- | --- | --- |
 | 001 | [Basic LLM Request](experiments/001-basic-llm/README.md) | 🟢 Working — UI + route verified; real-key questions open |
 | 002 | [Prompt Engineering (system prompts)](experiments/002-prompt-engineering/README.md) | 🟢 Working — server-owned personas; model behaviour unverified |
-| 003 | Conversation history | ⚪ Next |
-| 004 | Streaming | ⚪ |
+| 003 | [Conversation History](experiments/003-conversation-history/README.md) | 🟢 Working — stateless API, client-held history, server turn cap |
+| 004 | Streaming | ⚪ Next |
 | 005 | Error handling & status codes | ⚪ (partly done in 001) |
 | 006 | Structured outputs | ⚪ |
 | 007 | Token usage & cost | ⚪ |

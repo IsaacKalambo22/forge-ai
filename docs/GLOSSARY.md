@@ -45,3 +45,12 @@ trying to filter out bad ones. The client names a choice; the server owns what i
 
 **`server-only`** — a Next.js import that makes a module a build error if a Client
 Component pulls it in. Requires no npm install; Next resolves it internally.
+
+**Stateless** — the API retains nothing between calls. Every request must carry the
+entire conversation; the model has no memory of the previous one.
+
+**Context** — everything the model can see on a single request: the system prompt plus
+the full `messages` array. Nothing outside it exists to the model.
+
+**`import type`** — a TypeScript import erased at compile time. Naming a type from a
+heavy library costs the bundle nothing; a value import from the same module does not.
