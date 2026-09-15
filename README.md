@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–019 complete.** `pnpm test` → 499/499. `pnpm lint` and
+**Experiments 001–020 complete.** `pnpm test` → 553/553. `pnpm lint` and
 `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 020 — Closing the Verification Debt.**
+Currently building: **Experiment 021 — Gathering the `app` Claims.**
 
 ### Completed
 
@@ -26,7 +26,7 @@ Currently building: **Experiment 020 — Closing the Verification Debt.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 499 assertions, no framework
+- [x] Test suite — 553 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
@@ -34,24 +34,42 @@ Currently building: **Experiment 020 — Closing the Verification Debt.**
 - [x] Cost accounting — integer-nanodollar ledger, budgets enforced in dollars
 - [x] Context management — prefix caching, 53% cheaper at `MAX_TURNS`, lossless
 - [x] Agent-loop context — tool-result pruning, 60% cheaper per run
+- [x] Verification harness — `pnpm verify`, 9 claims with fixture-tested evaluators
 
 ### Currently building
 
-- [ ] **020 — Closing the Verification Debt.** Seven experiments now end blocked on
-      the same single thing, and two of them (018, 019) made *decisions* on projected
-      numbers. Build one harness that turns a credential into answers in a single run.
+- [ ] **021 — Gathering the `app` Claims.** Take `pnpm verify` from 5 of 9 to 9 of 9:
+      drive the running application rather than the SDK. The plumbing is the same
+      an end-to-end test suite needs — which this project has never had.
 
 ### Blocked — no Anthropic API credential
 
 Everything downstream of a live model call is built and type-checked but **never
-observed**: real `usage` / `stop_reason`, persona effects, schema conformance, the
-tool loop, the agent loop, generation quality.
+observed**. Since Experiment 020 that list is generated rather than maintained by hand:
+
+```bash
+pnpm verify
+```
+
+```text
+  9 claims blocked. The evaluators for all of them are unit-tested
+  against fixtures — run `pnpm test`. Only the evidence is missing.
+
+  Coverage of this harness: 5 of 9 are gathered by a direct API call.
+```
+
+**"Blocked" and "unbuilt" are different states.** For each claim, the part that knows
+*what would settle the question* is built and tested today; only the evidence is
+missing. A key converts the list in one command:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... pnpm verify
+```
 
 > A Claude.ai or ChatGPT **subscription is not an API credential.** They are separate
 > accounts with separate billing. See [Setup](#setup).
 
-This is recorded, not worked around. Retrieval is measurable *because* it was
-separated from generation.
+See [Experiment 020](experiments/020-verification-debt/README.md).
 
 ### Deferred
 
@@ -382,6 +400,7 @@ src/
     ├── users.ts              # "server-only": scrypt passwords, timing-equalised auth
     ├── pricing.ts            # token rates + integer-nanodollar cost — no imports
     ├── context.ts            # token estimation, window, cost projection — no imports
+    ├── claims.ts             # the verification debt as data + pure evaluators
     ├── usage.ts              # "server-only": the spend ledger
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
@@ -390,7 +409,7 @@ src/
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
-scripts/                      # `pnpm eval` · `pnpm cost` — benchmark and projection
+scripts/                      # `pnpm eval` · `pnpm cost` · `pnpm verify`
 tests/                        # `pnpm test` — 471 assertions, no framework
 .data/forge.db                # SQLite — users, transcripts, sessions, usage ledger
 ```
@@ -459,6 +478,7 @@ is the deliverable; the code is the apparatus.
 | 017 | [Cost & Token Accounting](experiments/017-cost-accounting/README.md) | 🟢 **Enforcement verified** — budgets in dollars, integer-nanodollar ledger; live `usage` still blocked |
 | 018 | [Context Management](experiments/018-context-management/README.md) | 🟢 **Projection verified** — prefix caching 53% cheaper at 20 turns, lossless; a real cache hit still blocked |
 | 019 | [Agent-Loop Context](experiments/019-agent-context/README.md) | 🟢 **Projection verified** — pruning 60% cheaper; **pruning + caching is worse than either alone** |
+| 020 | [Verification Debt](experiments/020-verification-debt/README.md) | 🟢 **Harness verified** — 9 fixture-tested evaluators; the debt is now redeemable in one command |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

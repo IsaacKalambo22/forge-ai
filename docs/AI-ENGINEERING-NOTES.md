@@ -1838,7 +1838,82 @@ instrument that only ever confirms you is not being read.
 
 ---
 
-# 39. The ForgeAI Learning Path
+# 39. Verification Debt
+
+Built in Experiment 020. The companion to section 33 (Evaluation): that one asks *is
+it good*, this one asks *has any of this ever actually run*.
+
+### "Blocked" and "unbuilt" are different states
+
+A project that cannot call a paid API accumulates claims it believes and has never
+observed. ForgeAI reached **seven experiments** ending in the same sentence before
+noticing the list had stopped being a footnote.
+
+The important realisation: **most of a blocked claim is not the API call.** It is
+knowing what evidence would settle the question, and that part is buildable today.
+
+```text
+EVIDENCE    what a live call produces         needs a credential
+EVALUATOR   whether that evidence settles it  PURE — testable against fixtures NOW
+```
+
+Split them and the part with reasoning in it — the part that can be *wrong* — is
+verified immediately. A credential then only supplies the input. Without the split,
+"run it when you get a key" means shipping N untested judgements and finding their
+bugs at the same moment as the answers.
+
+### Three verdicts, not two
+
+```text
+pass      the evidence settles it affirmatively
+fail      the evidence shows the predicted regression
+unusable  malformed or missing evidence
+```
+
+`unusable` is not `fail`. Collapsing them manufactures findings out of broken fetches.
+And **an evaluator must never throw** — a harness that crashes on a surprising
+response has told you nothing.
+
+### An evaluator that cannot fail is not an evaluator
+
+Easy to write by accident. Test each one against a fixture of the *specific regression
+its experiment predicted*, not just a happy path. For a cache claim that means
+evidence of tokens written and none read — the silent failure, which by definition
+looks fine everywhere else.
+
+### Make the claim data, not a script
+
+Id, the experiment it settles, the question *as that experiment recorded it*, the
+evidence required, the evaluator. Then the blocked list can be **generated** instead of
+maintained by hand — and a hand-maintained status list drifts. ForgeAI's README once
+declared "Experiment 001, UI not started" directly above a table showing 001–012
+complete.
+
+### Declare coverage where the reader forms the expectation
+
+A harness covering 5 of 9 claims must say so **before** the run, not in a summary line
+at the end of a path nobody can currently execute. Otherwise the honest inventory is
+itself dishonest — it promises nine answers and buys five.
+
+The general rule: **state a limitation where the expectation is formed, not where the
+code discovers it.**
+
+### A probe that can fail for the wrong reason is worse than no probe
+
+ForgeAI's cache probe pads its prefix past the minimum cacheable size. Below that
+threshold the API silently does not cache, the claim would render `fail`, and the
+conclusion would be wrong — the mechanism fine, the probe broken.
+
+Before trusting a red result, ask what else could produce it.
+
+### Verification is not a gate unless something runs it
+
+A verified claim can silently regress. A command someone has to remember is better
+than nothing and is not the same as CI.
+
+---
+
+# 40. The ForgeAI Learning Path
 
 The planned progression is:
 
@@ -1878,7 +1953,7 @@ What did I learn?
 
 ---
 
-# 40. My Engineering Philosophy
+# 41. My Engineering Philosophy
 
 ForgeAI is not supposed to become another tutorial project.
 
@@ -1904,7 +1979,7 @@ The goal is:
 
 ---
 
-# 41. Personal Career Direction
+# 42. Personal Career Direction
 
 My goal is to grow beyond simply implementing assigned software projects.
 
@@ -1950,7 +2025,7 @@ Areas I want to develop deeply:
 
 ---
 
-# 42. Rule for Learning New Technologies
+# 43. Rule for Learning New Technologies
 
 When encountering a new technical term, ask:
 
@@ -1988,12 +2063,12 @@ Understand the trade-offs.
 
 ---
 
-# 43. Current ForgeAI Status
+# 44. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 019.**
+**Last updated: 2026-09-15, after Experiment 020.**
 
-Experiments 001–019 are built, documented and tested. `pnpm test` runs 499 assertions
-across 23 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
+Experiments 001–020 are built, documented and tested. `pnpm test` runs 553 assertions
+across 24 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -2019,8 +2094,8 @@ src/app/
   api/metrics   latency percentiles          (014)
 
 src/lib/        31 modules — see README for the trust annotations
-tests/          499 assertions, no framework
-scripts/        pnpm eval (013) · pnpm cost (018)
+tests/          553 assertions, no framework
+scripts/        pnpm eval (013) · pnpm cost (018) · pnpm verify (020)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
@@ -2037,7 +2112,7 @@ model call is **built and type-checked but not observed**. See section 41.
 
 ---
 
-# 44. Current Architecture
+# 45. Current Architecture
 
 ```text
 Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user controls this
@@ -2064,7 +2139,7 @@ limit and the bill can live.
 
 ---
 
-# 45. What Is Verified, and What Is Not
+# 46. What Is Verified, and What Is Not
 
 This distinction matters more than any single lesson here. Three categories, per the
 operating rule — never write "working" because the code looks correct.
@@ -2094,7 +2169,8 @@ Integer nanodollars sum exactly where floats drift by 1.4e-14 (017)
 History growth is quadratic: 4x the input per doubling of turns (018)
 Prefix caching is 53% cheaper than full history at 20 turns, losslessly (018)
 Pruning + caching is WORSE than pruning alone: reuse collapses 8850 → 922 (019)
-pnpm test 499/499
+All 9 blocked claims have fixture-tested evaluators; only evidence is missing (020)
+pnpm test 553/553
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -2114,6 +2190,8 @@ Output tokens cost 5x input; a cache write only pays off on the second read
 Caching is a prefix match — volatile content must fall AFTER the breakpoint
 Caching needs an append-only history; editing the prefix destroys it
 A tool_result block cannot be dropped — only its content replaced
+"Blocked" and "unbuilt" are different states — most of a blocked claim is buildable
+State a limitation where the expectation is formed, not where the code finds it
 Anything an attacker can measure is an output — timing and error choice included
 ```
 
