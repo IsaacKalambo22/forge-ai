@@ -1,0 +1,18 @@
+#!/bin/sh
+# Experiment 022. Runs the gate before anything leaves this machine.
+#
+# pre-push rather than pre-commit, deliberately. A commit is a local checkpoint
+# and blocking it punishes work-in-progress; a push is the first moment the work
+# becomes someone else's problem. ~38 seconds is affordable there and is not
+# affordable on every commit.
+#
+# Installed by `pnpm hooks` (sets core.hooksPath), so it is version-controlled
+# rather than living untracked in .git/hooks.
+#
+# To bypass in an emergency:  git push --no-verify
+echo "pre-push: running pnpm check (git push --no-verify to skip)"
+pnpm check || {
+  echo ""
+  echo "pre-push: BLOCKED — the gate failed. Fix it, or push with --no-verify."
+  exit 1
+}

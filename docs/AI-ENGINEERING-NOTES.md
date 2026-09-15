@@ -1952,6 +1952,57 @@ collapsing it into `fail` would have reported a regression that did not exist.
 A verified claim can silently regress. A command someone has to remember is better
 than nothing and is not the same as CI.
 
+ForgeAI reached **six** verification commands before anything ran them, and the
+failure mode was not hypothetical — a comment claiming a rate limit that did not
+exist (012), a README contradicting its own table for twelve experiments (013), and
+an e2e suite leaking a server process while reporting success (021).
+
+**Build a gate, not a checklist.**
+
+```text
+order by cost, stop at the first failure
+  types → lint → unit → end-to-end → benchmark
+a type error should not wait behind a 16-second e2e run
+```
+
+Three places, because each has a different hole:
+
+```text
+local command   can be forgotten
+pre-push hook   can be bypassed (--no-verify), and is absent on a fresh clone
+                (core.hooksPath is local config, not a tracked file)
+CI              cannot be skipped — the only one not depending on a person
+```
+
+CI should run **the same command** a developer runs. If the two can disagree, the
+local one stops being trusted.
+
+**Pre-push, not pre-commit.** A commit is a local checkpoint; blocking it punishes
+work-in-progress. A push is the first moment the work becomes someone else's problem.
+
+**Skipped is not passed.** A gate that costs money stays opt-in and says `skipped`
+out loud — a gate that silently spends is a gate people disable.
+
+**Print the failing gate's own output.** A runner that swallows its children's output
+makes a failure harder to fix than no gate at all.
+
+### Runtime-downloaded files are not in the package cache
+
+A dependency that downloads a model on first use writes it *inside* `node_modules`.
+The CI package cache (`cache: pnpm`, `cache: npm`) stores the package **tarball**, not
+files the package wrote after install — so it silently re-downloads every run. Cache
+that path explicitly, and verify the glob against the real tree rather than assuming
+it resolves.
+
+### Check how output looks to its actual consumer
+
+In-place terminal progress (`\r`, `\x1b[K`) renders as literal `[K` when piped — and a
+git hook's output and a CI log are both pipes. ForgeAI's gate was built for exactly
+those two contexts and rendered worst in both. Guard on `process.stdout.isTTY`.
+
+The general lesson, and the second time this project learned it: **look at the output
+the way its reader will, not the way its author does while running it by hand.**
+
 ---
 
 # 40. The ForgeAI Learning Path
@@ -2106,9 +2157,10 @@ Understand the trade-offs.
 
 # 44. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 021.**
+**Last updated: 2026-09-15, after Experiment 022.**
 
-Experiments 001–021 are built, documented and tested. `pnpm test` runs 561 assertions
+Experiments 001–022 are built, documented and tested. One command, `pnpm check`, runs
+every gate in ~38s, and a pre-push hook plus CI run it automatically. `pnpm test` runs 561 assertions
 across 24 files; `pnpm e2e` runs 32 end-to-end assertions against a real server. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
@@ -2136,7 +2188,7 @@ src/app/
 
 src/lib/        31 modules — see README for the trust annotations
 tests/          561 assertions, no framework
-scripts/        pnpm eval (013) · pnpm cost (018) · pnpm verify (020) · pnpm e2e (021)
+scripts/        pnpm eval · cost · verify · e2e · check (022, the gate)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
@@ -2212,6 +2264,7 @@ Prefix caching is 53% cheaper than full history at 20 turns, losslessly (018)
 Pruning + caching is WORSE than pruning alone: reuse collapses 8850 → 922 (019)
 All 9 blocked claims have fixture-tested evaluators; only evidence is missing (020)
 32 end-to-end assertions pass against a real server, no credential needed (021)
+The full gate runs in ~38s; breaking a test on purpose stops it at that gate (022)
 pnpm test 561/561 · pnpm e2e 32/32
 ```
 

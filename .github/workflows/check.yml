@@ -1,0 +1,56 @@
+# Experiment 022. The same gate `pnpm check` runs locally, run on every push.
+#
+# The pre-push hook can be bypassed with --no-verify and does not exist at all
+# on a fresh clone until someone runs `pnpm hooks`. This is the copy that does
+# not depend on anyone remembering.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 24: the project uses `node:sqlite`, which does not exist in 20
+          # or 22. Experiment 015 found this the hard way via a stale
+          # @types/node — the runtime and the types must agree.
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The embedding model is downloaded at RUNTIME, on first use, and cached
+      # INSIDE node_modules — not in the pnpm store. So `cache: pnpm` above does
+      # not preserve it, and without this step every run re-downloads 23MB
+      # before `eval` and before the e2e suite's search assertions.
+      #
+      # Keyed on the lockfile because the cache path contains the package
+      # version; a transformers upgrade must not restore a stale model.
+      - name: Cache the local embedding model
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.pnpm/@xenova+transformers@*/node_modules/@xenova/transformers/.cache
+          key: xenova-model-${{ hashFiles('pnpm-lock.yaml') }}
+
+      # One command, the same one a developer runs. If this workflow and the
+      # local gate can disagree, the local gate stops being trusted.
+      - run: pnpm check
+        env:
+          # `verify` spends real money, so it stays opt-in even here. Set the
+          # ANTHROPIC_API_KEY secret and FORGE_VERIFY=1 to include it — and
+          # expect it to be the only gate that can fail for reasons outside
+          # this repository.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

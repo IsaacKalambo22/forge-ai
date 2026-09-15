@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–021 complete.** `pnpm test` → 561/561 · `pnpm e2e` → 32/32 ·
-`pnpm lint` and `npx tsc --noEmit` → clean.
+**Experiments 001–022 complete.** `pnpm check` → all gates pass (~38s):
+types · lint · 561 unit · 32 end-to-end · retrieval benchmark.
 
-Currently building: **Experiment 022 — Continuous Verification.**
+Currently building: **Experiment 023 — Prompt-Injection, End to End.**
 
 ### Completed
 
@@ -36,13 +36,14 @@ Currently building: **Experiment 022 — Continuous Verification.**
 - [x] Agent-loop context — tool-result pruning, 60% cheaper per run
 - [x] Verification harness — `pnpm verify`, 9 claims with fixture-tested evaluators
 - [x] End-to-end suite — `pnpm e2e`, 32 assertions through the front door
+- [x] Continuous verification — `pnpm check`, a pre-push hook, and CI
 
 ### Currently building
 
-- [ ] **022 — Continuous Verification.** Four commands check different things and
-      *nothing runs any of them*. Every one depends on a person remembering — the
-      same failure mode as the comment claiming a rate limit that did not exist (012)
-      and the README that contradicted itself for twelve experiments (013).
+- [ ] **023 — Prompt-Injection, End to End.** 010 found a real vulnerability and fixed
+      it, and the defence is verified only against a function. Every other security
+      property got an end-to-end assertion in 021; the one where the attack arrives
+      inside *data the model reads* did not.
 
 ### Blocked — no Anthropic API credential
 
@@ -80,7 +81,6 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 - [ ] Prefix caching on `/api/ask`
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
-- [ ] CI — nothing runs `test` / `e2e` / `eval` / `verify` automatically
 - [ ] Client-component tests — `chat.tsx` state handling is only hand-clicked
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
@@ -324,6 +324,40 @@ correctly; counting it would make the alarm ring for someone else's broken scrip
 
 See [Experiment 014](experiments/014-observability/README.md).
 
+## Checking everything
+
+```bash
+pnpm check
+```
+
+```text
+forge-ai — check  (6 gates, cheapest first)
+
+  ✓ types     4.7s · the contract between every module
+  ✓ lint      9.7s · a red lint hides the next real error
+  ✓ test      3.4s · 561 assertions — the pieces
+  ✓ e2e      15.8s · 32 assertions — whether the pieces fit together
+  ✓ eval      4.0s · retrieval is at recall@3 = 100%, so this can only detect DAMAGE
+  — verify         skipped: no ANTHROPIC_API_KEY
+
+  all gates passed
+```
+
+Ordered cheapest-first and stops at the first failure, printing that gate's own
+output. `verify` spends real money so it stays opt-in (`FORGE_VERIFY=1`) even when a
+credential exists.
+
+To run it automatically before every push:
+
+```bash
+pnpm hooks      # sets core.hooksPath to .githooks
+```
+
+That is local git config, so a fresh clone needs it once. The same gate also runs in
+CI ([.github/workflows/check.yml](.github/workflows/check.yml)), which is the copy
+that cannot be skipped with `--no-verify`. See
+[Experiment 022](experiments/022-continuous-verification/README.md).
+
 ## End-to-end
 
 Every route used to be checked by hand with `curl` — 500+ unit assertions proved the
@@ -502,6 +536,7 @@ is the deliverable; the code is the apparatus.
 | 019 | [Agent-Loop Context](experiments/019-agent-context/README.md) | 🟢 **Projection verified** — pruning 60% cheaper; **pruning + caching is worse than either alone** |
 | 020 | [Verification Debt](experiments/020-verification-debt/README.md) | 🟢 **Harness verified** — 9 fixture-tested evaluators; the debt is now redeemable in one command |
 | 021 | [End-to-End](experiments/021-end-to-end/README.md) | 🟢 **Verified** — first e2e suite, 32 assertions; `pnpm verify` now 9/9; a process leak found and fixed |
+| 022 | [Continuous Verification](experiments/022-continuous-verification/README.md) | 🟢 **Verified** — `pnpm check` gate (~38s), pre-push hook fires; CI written, not yet run |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

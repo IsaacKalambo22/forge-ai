@@ -11,7 +11,9 @@
     "eval": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/eval-retrieval.mts",
     "cost": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/project-cost.mts",
     "verify": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/verify-live.mts",
-    "e2e": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/e2e.mts"
+    "e2e": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/e2e.mts",
+    "hooks": "git config core.hooksPath .githooks && echo 'hooks installed: .githooks (pre-push runs pnpm check)'",
+    "check": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
