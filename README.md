@@ -377,9 +377,21 @@ runs.
 
 Caching removes the repeat cost — a chunk whose text has not changed is never
 re-embedded, and because the key is the *text*, moving a section between files costs
-nothing. Batching (16 at a time rather than one call with all 284 chunks) roughly
-halved peak memory, ~833 MB → 424 MB: a batch is padded to its longest member, so one
-long passage was inflating every other text in the call.
+nothing.
+
+Batching (16 at a time rather than one call with all 285 chunks) is the other half, and
+much larger than it looks. A batch is padded to its longest member, so one long passage
+inflates every other text in the call. Interleaved A/B, two runs per arm:
+
+```text
+unbatched   17.7 min / 16.6 min        peak RSS ~833 MB
+batched        56 s  /    58 s         peak RSS  424 MB
+```
+
+**~18×.** The unbatched path also degrades faster than the corpus grows: 11% more
+chunks cost 99% more time. An earlier version of this README claimed 2.6× from a
+badly-controlled measurement — see the correction in
+[Experiment 024](experiments/024-affordable-index/README.md).
 
 Cached vectors are bit-identical to fresh ones (cosine `1.000000000`, max component
 delta `0.00e+0`), and `pnpm eval` confirms retrieval is unchanged.
@@ -569,7 +581,7 @@ is the deliverable; the code is the apparatus.
 | 021 | [End-to-End](experiments/021-end-to-end/README.md) | 🟢 **Verified** — first e2e suite, 32 assertions; `pnpm verify` now 9/9; a process leak found and fixed |
 | 022 | [Continuous Verification](experiments/022-continuous-verification/README.md) | 🟢 **Verified** — `pnpm check` gate (~38s), pre-push hook fires; CI written, not yet run |
 | 023 | [Injection, Beyond the Unit Test](experiments/023-injection-end-to-end/README.md) | 🟢 **Verified** — the corpus really contains payloads; renderer holds. Surfaced an 8.6-min index build |
-| 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — warm build ~**40ms** vs tens of seconds cold; one speed claim withdrawn, see the README |
+| 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — caching: ~40ms warm vs ~56s cold; batching: **~18×** and half the RSS (first attempt measured 2.6× from noise) |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

@@ -2022,47 +2022,57 @@ float32 — JSON would be ~8x larger and lossy in the last bits.
 A content-addressed cache is also **portable**: valid in any database, because the key
 describes the content rather than its location.
 
-### Batch size matters: a batch is padded to its longest member
+### Batch size matters enormously: a batch is padded to its longest member
 
-Embedding every chunk in one call means each short chunk is padded to the length of the
-longest text in the corpus, and the model does that wasted work for all of them.
-Batching bounds it. Measured in ForgeAI: peak RSS **~833 MB → 424 MB** at batch 16.
+Embedding every chunk in one call pads each short chunk to the length of the longest
+text in the corpus, and the model does that wasted work for all of them.
 
-The same argument predicts a speed win. **ForgeAI claimed one and had to withdraw it**
-— see below.
+Measured in ForgeAI, 285 chunks, interleaved A/B/A/B with each arm run twice:
+
+```text
+unbatched   1,061 s   /   996 s        (~17 minutes)
+batched 16     56 s   /    58 s
+                                       ~18x, and peak RSS 833MB -> 424MB
+```
+
+**And the unbatched path scales worse than linearly.** At 256 chunks it took 517 s; at
+285 it took ~1028 s — **11% more chunks, 99% more time** — because cost is roughly
+*n x longest chunk* and adding documents grows both factors.
+
+Batch size is not a tuning detail on a padded-batch model. It is the difference between
+a corpus that scales and one that does not.
 
 ### A measurement taken under uncontrolled conditions is a guess with a decimal point
 
-ForgeAI recorded "batching cut the cold build 2.6x, 516.6 s → 196.8 s". Later runs of
-**the same batched code** came in at 162.0 s, 70.6 s and 66.9 s.
+Before running that A/B, ForgeAI recorded "batching cut the cold build 2.6x, 516.6 s →
+196.8 s". Later runs of **the same batched code** came in at 162 s, 83 s, 71 s and 67 s.
 
 ```text
-batched, same code:  66.9 s ... 196.8 s     a 2.9x spread
-claimed speedup from the change:  2.6x
+batched, same code:   66.9 s ... 196.8 s     a 2.9x spread from load alone
+claimed effect of the change:  2.6x
 ```
 
-The spread from machine load alone was larger than the effect being claimed. The load
-average on that laptop ranged from 21 to 324 while the editor re-indexed the files
-being edited, and the unbatched baseline was measured once, under unknown conditions,
-and never repeated.
+The spread within one arm was larger than the effect being claimed. Load average on
+that laptop ranged from 6 to 324 while the editor re-indexed the files being edited,
+and the unbatched baseline was measured once and never repeated.
+
+**The real effect was ~18x.** So the bad measurement pointed the right way and was still
+worthless: it would have said 2.6x just as readily if batching had done nothing.
+**Being right for bad reasons is still being wrong.**
 
 What made it stick was that **the number agreed with a correct mechanism.** The padding
 argument is sound; the timings looked like confirmation; they were noise. A plausible
-explanation makes a bad measurement much harder to doubt.
-
-Rules that follow:
+explanation makes a bad measurement much harder to doubt than an implausible one.
 
 ```text
-interleave A/B/A/B        the control for load that drifts during the run
-repeat each side          one sample per arm is not a comparison
-record the conditions     load average, what else was running
-make the config switchable  so both paths can be run back to back, later
-distrust an effect smaller than the spread of its own arm
+interleave A/B/A/B            the control for load that drifts mid-run
+repeat each arm               one sample per arm is not a comparison
+record the conditions         load average, what else was running
+make the config switchable    so both paths can be re-run later
+distrust an effect smaller than the spread within its own arm
 ```
 
-Two claims from the same experiment survived this and one did not, and the difference
-is instructive: caching (three orders of magnitude, reproduced) and memory (~2x, large
-and mechanism-backed) held; a 2.6x timing claim inside a 2.9x noise band did not.
+That last rule catches this case with no extra runs at all.
 
 ### Prove the fast version is not the worse version
 
@@ -2442,7 +2452,8 @@ The full gate runs in ~38s; breaking a test on purpose stops it at that gate (02
 The corpus really contains injection payloads; the renderer neutralised 5 (023)
 The notebook index is 256 chunks and takes 8.6 minutes to build (023)
 Caching embeddings: tens of seconds cold → 36-71ms warm, reproduced (024)
-Batching halved peak RSS 833MB → 424MB; its SPEED effect was withdrawn (024/025)
+Batching: ~18x faster and half the RSS — after a first attempt measured 2.6x
+  from noise, inside a 2.9x spread of its own arm (024/025)
 Cached vectors are bit-identical to fresh ones, and retrieval is unchanged (024)
 pnpm test 561/561 · pnpm e2e 32/32
 ```

@@ -73,50 +73,79 @@ pairing measured gives at least ~1,000×, and the cache costs 407 KB for 271 vec
 This is the claim the experiment supports. The spread in the *cold* column — 66.9 s to
 196.8 s for the same code — is the machine, not the code. See the correction below.
 
-### CORRECTION — a speedup claim this experiment did not earn
+### CORRECTION — the speedup claim was wrong, and then measured properly
 
 **An earlier version of this README claimed batching cut the cold build 2.6×, from
-516.6 s to 196.8 s. That claim is withdrawn.**
+516.6 s to 196.8 s. That claim was unsound, and the real figure is about 18×.**
 
-Every cold measurement taken, with what was running at the time:
+*What was wrong with it.* Every cold measurement taken at the time, with what else was
+running:
 
 | config | chunks | cold build | RSS |
 | --- | --- | --- | --- |
 | one call with everything (Exp. 023) | 256 | 516.6 s | ~833 MB |
 | batched 16 | 271 | 196.8 s | — |
 | batched 16 | 271 | 162.0 s | 424 MB |
-| batched 16 | 284 | 70.6 s | — |
-| batched 16 | 284 | 66.9 s | — |
+| batched 16 | 284 | 70.6 s / 66.9 s | — |
+| batched 16 | 285 | 82.8 s | — |
 
-**The batched configuration alone spans 66.9 s to 196.8 s — a 2.9× spread, from load
-only.** That is larger than the 2.6× I attributed to batching. The machine's load
-average was observed between 21 and 324 during this work, with the editor re-indexing
-the files being changed; the unbatched 516.6 s figure was taken under unknown load and
-never repeated.
+**The batched arm alone spans 66.9 s to 196.8 s — a 2.9× spread, from load only.**
+Larger than the 2.6× being attributed to the change. The machine's load average was
+observed between 6 and 324 while the editor re-indexed the files being edited, and the
+unbatched baseline was measured once, under unknown conditions, and never repeated.
 
-So two contended samples were compared and the difference credited to the change. The
-measurement cannot distinguish the code from the conditions.
+Two contended samples were compared and the difference credited to the code. That is
+not an A/B test, whatever number it produces.
 
-**What survives:**
+*Measured properly.* `FORGE_EMBED_BATCH` now selects the batch size (`0` = one call
+with everything), so both paths can be run back to back. Interleaved A/B/A/B, each arm
+twice, same corpus of 285 chunks:
 
-- **Caching is a real, large win.** 36–71 ms against tens of seconds is far too big a
-  gap for load to explain, and it reproduced across several runs.
-- **Batching roughly halved peak memory** — ~833 MB to 424 MB, one measurement each,
-  and consistent with the padding argument below.
+```text
+unbatched  1,061,242 ms      (17.7 min)
+batched       56,082 ms      (56.1 s)
+unbatched    995,592 ms      (16.6 min)
+batched       58,408 ms      (58.4 s)
+```
 
-**What does not:** any statement about batching and *speed*, in either direction. It
-may help, may be neutral; this experiment cannot say.
+Within-arm agreement is **6%** and **4%**. Between arms it is **~18×**. The effect is
+enormously larger than the noise, which is exactly what the earlier measurement could
+not have told anyone.
 
-`FORGE_EMBED_BATCH` now selects the batch size (`0` = one call with everything) so the
-two paths can be measured back to back. The interleaved A/B has not been run: the
-machine has not been quiet enough for the result to mean anything.
+*And the unbatched path scales worse than linearly.* Experiment 023 measured it at
+516.6 s for 256 chunks; here it is ~1028 s for 285:
 
-**The lesson is the one this project keeps relearning.** Experiment 018 recorded that
-the value of an instrument is that it can contradict you. Here the instrument was a
-wall clock on a laptop running an editor, and it agreed with me — which felt like
-confirmation and was noise. *A measurement taken under uncontrolled conditions is a
-guess with a decimal point.* Interleaving A and B is the control, and it costs nothing
-to design in from the start.
+```text
+chunks  +11%   →   time  +99%
+```
+
+Consistent with the padding mechanism: total work is roughly *n × longest chunk*, and
+adding experiment READMEs grew **both** factors. The single-call version does not just
+cost more as the notebook grows — it degrades faster than the notebook does.
+
+*What this does to the earlier conclusion.* The direction was right and the reasoning
+was right; the evidence was not. **Being right for bad reasons is still being wrong** —
+the 2.6× understated a real 18× effect, and a number that happens to point the right
+way is not a measurement. Had batching made no difference at all, that evidence would
+have said 2.6× just as readily.
+
+*The lesson, which this project keeps relearning.* Experiment 018 recorded that the
+value of an instrument is that it can contradict you. Here the instrument was a wall
+clock on a laptop running an editor, and it **agreed** with me — which felt like
+confirmation and was noise. A plausible mechanism makes a bad measurement much harder
+to doubt.
+
+```text
+interleave A/B/A/B            the control for load that drifts mid-run
+repeat each arm               one sample per arm is not a comparison
+record the conditions         load average, what else was running
+make the config switchable    so both paths can be re-run later
+distrust an effect smaller than the spread within its own arm
+```
+
+The last rule is the one that would have caught this at the time, with no extra runs:
+the batched arm varied by 2.9× on its own, so a 2.6× claim was never supportable from
+that data.
 
 ### Observed — the cached vectors are bit-identical to fresh ones
 
@@ -269,7 +298,8 @@ oversight.
 | Migration 5 + `embedcache.ts` | ✅ Verified, 30 assertions |
 | **Warm build: tens of seconds → 36–71 ms** | ✅ **Measured, reproduced** |
 | Batching halved peak memory (833 → 424 MB) | ✅ Measured once each side |
-| Batching and cold-build *speed* | ❌ **Withdrawn — see the correction** |
+| **Batching cuts cold build ~18×** (17.7 min → 56 s) | ✅ **Interleaved A/B, 2 runs per arm** |
+| The original 2.6× figure | ❌ **Withdrawn — it was noise that pointed the right way** |
 | Cached vectors bit-identical to fresh | ✅ **Verified against the real model** |
 | Retrieval quality unchanged | ✅ **Verified — recall@3 100%, MRR 0.896** |
 | 503 + `Retry-After` while building | ✅ Verified end-to-end |
