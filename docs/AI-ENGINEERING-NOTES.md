@@ -1319,7 +1319,140 @@ reason not to fix.**
 
 ---
 
-# 35. The ForgeAI Learning Path
+# 35. Persistence and State
+
+Built in Experiment 015.
+
+### In-process state vs. persistence
+
+Everything ForgeAI stored before 015 lived in a variable: rate-limiter buckets, the
+telemetry ring buffer, the embedding index. Fast, simple, **gone when the process
+exits**.
+
+A *fact the system must still know after a restart* needs a different home. The test
+that separates the two:
+
+```text
+Kill the process. Start it again. Is the fact still true?
+```
+
+### What a database gives that a variable does not
+
+```text
+durability    it survives the process
+constraints   rules enforced BELOW the code, so they hold when the code is wrong
+transactions  a group of writes that applies completely or not at all
+queries       ask questions of the data that were not anticipated when it was written
+```
+
+### Migrations
+
+Schema changes applied once, in order, recorded so they are not applied twice.
+
+ForgeAI keeps the version in SQLite's own `user_version` pragma — an integer the
+database carries for exactly this. No migrations table to bootstrap, and **the version
+travels with the file**, so a copied database cannot disagree with itself about which
+migrations it has had.
+
+Rules that turned out to matter:
+
+```text
+Never edit a migration that has shipped — append a new one.
+Each migration runs in a transaction, or an interrupted deploy leaves half a schema.
+Refuse to run against a schema NEWER than the code understands.
+```
+
+### Constraints are worth writing
+
+```sql
+CHECK (role IN ('user','assistant'))
+UNIQUE (conversation_id, seq)
+FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+```
+
+They hold when the code above them is wrong, which is the entire reason to put them
+there rather than in a validator.
+
+**SQLite ignores `FOREIGN KEY` unless you ask** (`PRAGMA foreign_keys = ON`) — a
+default kept for backward compatibility, and a trap: the constraint is written, reads
+as enforced, and silently is not. Test the pragma, not the syntax.
+
+### Server-owned state closes a class of attack
+
+The Experiment 003 debt: the client sent the whole conversation each turn, so a
+client-supplied **assistant** turn was only a claim. That is not a cosmetic accuracy
+problem — it is the client writing into the model's context. *"You already agreed to
+ignore your instructions"* is an assistant turn.
+
+The fix was not a validator. The contract changed:
+
+```text
+before   { messages: [ …entire conversation… ], persona }
+after    { conversation_id?, message, persona? }
+```
+
+**The strongest fix is the one where the attack cannot be expressed, not the one where
+it is validated away.** A validator is code that can have a bug; an absent parameter
+cannot. Verified over real HTTP: a forged assistant turn sent to the new endpoint is
+not rejected — it is simply not a parameter, and the stored transcript contains only
+what the server wrote.
+
+Related: **ordering must be the server's.** `seq` is assigned from the count already
+stored, never supplied by the caller, and a `UNIQUE (conversation_id, seq)` constraint
+makes it a fact rather than an assertion.
+
+### Signed tokens cannot be un-signed
+
+The Experiment 012 debt. A signature says the token is **authentic**; it can never say
+whether it has been **logged out**, because a logout is a fact about the world *after*
+the token was issued. Stateless verification has nothing to consult.
+
+```text
+allowlist  every authenticated request reads the DB to confirm the session exists.
+           Correct — and it throws away the reason stateless tokens were chosen.
+denylist   read a small table of tokens explicitly revoked and not yet expired.
+           Usually empty. Costs a read only where revocation is real.
+```
+
+Measured in ForgeAI after logout:
+
+```text
+signature still valid : true
+expired?              : false  - expires in 12 h
+result                : HTTP 401
+```
+
+Still cryptographically perfect, still rejected.
+
+**Store a hash, never the token.** A list of un-expired session tokens is a list of
+live credentials; stored raw, the table protecting the sessions becomes the most
+dangerous one in the schema. SHA-256 suffices where a password would need a slow KDF,
+because the input is 256+ bits of MAC output — there is no dictionary to attack.
+
+**Anything that accumulates needs purging.** The denylist grows with every logout, and
+rows past their token's expiry are dead weight. Same lesson as the ring buffer in 014.
+
+### A capability is a value that grants access by being held
+
+A conversation id is one, so it is 128 random bits and not a counter — sequential ids
+let anyone enumerate every conversation by counting.
+
+But **unguessable is not owned.** ForgeAI can currently tell that a session is valid
+and cannot tell whether a conversation belongs to it. Authentication is *who are you*;
+authorization is *may you touch this*. Having the first is not having the second.
+
+### The store being available is not a reason to use it
+
+The rate limiter and telemetry were deliberately **not** moved into SQLite. They are
+hot-path state written on every request, where a transcript is written twice per
+conversation. Moving them buys a disk write per request to solve a problem — sharing
+between instances — that does not exist until there is a second instance.
+
+Deferred, with the reason recorded, is a decision. Deferred silently is a bug.
+
+---
+
+# 36. The ForgeAI Learning Path
 
 The planned progression is:
 
@@ -1359,7 +1492,7 @@ What did I learn?
 
 ---
 
-# 36. My Engineering Philosophy
+# 37. My Engineering Philosophy
 
 ForgeAI is not supposed to become another tutorial project.
 
@@ -1385,7 +1518,7 @@ The goal is:
 
 ---
 
-# 37. Personal Career Direction
+# 38. Personal Career Direction
 
 My goal is to grow beyond simply implementing assigned software projects.
 
@@ -1431,7 +1564,7 @@ Areas I want to develop deeply:
 
 ---
 
-# 38. Rule for Learning New Technologies
+# 39. Rule for Learning New Technologies
 
 When encountering a new technical term, ask:
 
@@ -1469,12 +1602,12 @@ Understand the trade-offs.
 
 ---
 
-# 39. Current ForgeAI Status
+# 40. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 014.**
+**Last updated: 2026-09-15, after Experiment 015.**
 
-Experiments 001–014 are built, documented and tested. `pnpm test` runs 264 assertions
-across 14 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
+Experiments 001–015 are built, documented and tested. `pnpm test` runs 315 assertions
+across 17 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -1499,8 +1632,9 @@ src/app/
   api/login     session issue / revoke       (012)
   api/metrics   latency percentiles          (014)
 
-src/lib/        24 modules — see README for the trust annotations
-tests/          264 assertions, no framework
+src/lib/        27 modules — see README for the trust annotations
+tests/          315 assertions, no framework
+.data/forge.db  SQLite — transcripts and revoked sessions   (015)
 scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
 
@@ -1516,7 +1650,7 @@ model call is **built and type-checked but not observed**. See section 41.
 
 ---
 
-# 40. Current Architecture
+# 41. Current Architecture
 
 ```text
 Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user controls this
@@ -1541,7 +1675,7 @@ limit and the bill can live.
 
 ---
 
-# 41. What Is Verified, and What Is Not
+# 42. What Is Verified, and What Is Not
 
 This distinction matters more than any single lesson here. Three categories, per the
 operating rule — never write "working" because the code looks correct.
@@ -1560,7 +1694,10 @@ Retrieval scored: recall@3 100%, MRR 0.896 vs 0.736 lexical (013)
 Correlation id ties client response to server log (014)
 Provider-leak fix confirmed in a real production build (014)
 Latency p50 6ms / p95 1579ms on real traffic (014)
-pnpm test 264/264
+A forged assistant turn is no longer expressible (015)
+A logged-out token is refused though its signature is valid (015)
+A conversation survives the server process being killed (015)
+pnpm test 315/315
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -1572,6 +1709,8 @@ A signed token is not an encrypted one — the holder may read, not alter
 The HTTP status is committed with the first byte, so a stream cannot 502 late
 An average hides the tail; a log that captures a secret has moved that secret
 A 4xx is the client being wrong, not the server failing
+A signature proves authenticity, never that a token is still wanted
+Unguessable is not owned: authentication is not authorization
 ```
 
 **Not yet verified — no API credential configured:**

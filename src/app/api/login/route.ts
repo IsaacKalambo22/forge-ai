@@ -1,5 +1,9 @@
 import { guard, rateLimit } from "@/lib/guard";
-import { SESSION_TTL_MS, clearCookie, issueSession, sessionCookie } from "@/lib/session";
+import {
+  SESSION_COOKIE, SESSION_TTL_MS, clearCookie, issueSession, readCookie, sessionCookie,
+  verifySession,
+} from "@/lib/session";
+import { revocations } from "@/lib/revocation";
 
 export async function POST(request: Request) {
   // Rate-limited but NOT auth-checked — a login endpoint cannot require
@@ -56,6 +60,26 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const denied = guard(request, "search");
   if (denied !== null) return denied;
+
+  // Experiment 015. Clearing the cookie only asks the BROWSER to forget the
+  // token; anyone who copied it still holds a validly-signed credential. Before
+  // 015 that was the whole of logout, and Experiment 012 recorded it as a known
+  // hole. Now the token goes on the denylist for the rest of its lifetime.
+  const secret = process.env.APP_SECRET;
+  const cookie = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
+
+  if (cookie !== null && secret !== undefined && secret !== "") {
+    const result = verifySession(cookie, secret, Date.now());
+    if (result.valid) {
+      // Revoke until its own expiry — past that the signature check rejects it
+      // anyway, and the row would be dead weight.
+      revocations.revoke(cookie, result.payload.exp);
+    }
+    // Opportunistic housekeeping: logout is the natural moment to drop rows
+    // whose tokens have expired, and it keeps the table from growing forever
+    // without needing a scheduler this project does not have.
+    revocations.purge();
+  }
 
   const secure = process.env.NODE_ENV === "production";
   return Response.json({ ok: true }, { headers: { "Set-Cookie": clearCookie(secure) } });

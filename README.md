@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–014 complete.** `pnpm test` → 264/264. `pnpm lint` and
+**Experiments 001–015 complete.** `pnpm test` → 315/315. `pnpm lint` and
 `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 015 — Persistence.**
+Currently building: **Experiment 016 — Identity and Authorization.**
 
 ### Completed
 
@@ -26,15 +26,17 @@ Currently building: **Experiment 015 — Persistence.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 264 assertions, no framework
+- [x] Test suite — 315 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
+- [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
 
 ### Currently building
 
-- [ ] **015 — Persistence.** One missing thing behind three recorded debts:
-      forgeable client-held history (003), in-process state that dies on restart
-      (011, 014), and sessions that cannot be revoked before expiry (012).
+- [ ] **016 — Identity and Authorization.** 015 made conversations durable and left
+      them unowned: the project authenticates (*is this a valid session?*) but does
+      not authorize (*is this conversation yours?*). Needs real users, retiring
+      Experiment 012's "one password, no users".
 
 ### Blocked — no Anthropic API credential
 
@@ -53,7 +55,10 @@ separated from generation.
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
 - [ ] Token counts / cost per request — blocked on the credential, not on design
-- [ ] CSRF token; multi-user identity
+- [ ] CSRF token
+- [ ] Moving the rate limiter and telemetry into the store — deliberately deferred
+      in 015: hot-path state, and a disk write per request fixes nothing until
+      there is a second instance
 - [ ] Production deployment hardening
 
 ## Setup
@@ -105,20 +110,31 @@ curl -s -w '\nHTTP %{http_code}\n' -X POST localhost:3000/api/chat \
   -H 'Content-Type: application/json' -d '{"message":""}'
 ```
 
-Returns `{"error":"Message is required"}` with HTTP 400. The same 400 is returned for
-a missing field, a whitespace-only string, or a non-string value. A `GET` to the same
-URL returns 405 — Next derives that from the fact that only `POST` is exported.
+Returns `{"error":"message must be a non-empty string"}` with HTTP 400. The same 400
+is returned for a missing field, a whitespace-only string, or a non-string value. A
+`GET` returns 405 — Next derives that from the fact that only `POST` is exported.
 
-**Model call (requires an API key):**
+**Starting a conversation (needs an API key for the reply, but not for the id):**
 
 ```bash
 curl -s -X POST localhost:3000/api/chat \
   -H 'Content-Type: application/json' \
-  -d '{"message":"Say hello in one sentence."}' | python3 -m json.tool
+  -d '{"message":"Say hello in one sentence.","persona":"terse"}'
 ```
 
-The route currently returns the **raw Anthropic `Message` object** so the response can
-be inspected. Four fields are worth reading every time:
+Since Experiment 015 the request carries **one message, not a history**. The first
+line of the stream is the conversation id; send it back to continue:
+
+```bash
+curl -s -X POST localhost:3000/api/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"conversation_id":"<id from above>","message":"And again, shorter."}'
+```
+
+The server owns the transcript. There is no parameter through which a client can
+supply an assistant turn — see [Experiment 015](experiments/015-persistence/README.md).
+
+The stream's `done` event carries the fields worth reading every time:
 
 | Field | What it tells you |
 | --- | --- |
@@ -250,6 +266,9 @@ src/
     ├── log.ts                # structured JSON lines + redaction — no imports
     ├── telemetry.ts          # bounded ring buffer + snapshot — pure core
     ├── observe.ts            # "server-only": id, timer, log, leak-free failures
+    ├── db.ts                 # "server-only": SQLite + versioned migrations
+    ├── transcripts.ts        # "server-only": server-owned conversations
+    ├── revocation.ts         # "server-only": session denylist (hashes, not tokens)
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
     ├── tools.ts              # "server-only": tool definitions + execution
@@ -258,7 +277,8 @@ src/
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
 scripts/                      # `pnpm eval` — the retrieval benchmark
-tests/                        # `pnpm test` — 264 assertions, no framework
+tests/                        # `pnpm test` — 315 assertions, no framework
+.data/forge.db                # SQLite — git-ignored, created on first run
 ```
 
 ## Architecture
@@ -269,8 +289,8 @@ User
   ▼
 Browser  ·  chat.tsx ("use client")          ← untrusted: the user controls this
   │
-  │  POST /api/chat   { messages[], persona }
-  │  ← NDJSON stream: {type:"text"} … {type:"done"}
+  │  POST /api/chat   { conversation_id?, message, persona? }
+  │  ← NDJSON stream: {type:"conversation"} {type:"text"} … {type:"done"}
   ▼ ─────────────────────────────────────────  trust boundary
 Server   ·  app/api/chat/route.ts            ← trusted: the user cannot read or edit this
   │
@@ -318,6 +338,7 @@ is the deliverable; the code is the apparatus.
 | 012 | [Test Suite & Sessions](experiments/012-testing-and-sessions/README.md) | 🟢 **Verified end-to-end** — `pnpm test` 199/199, session flow working |
 | 013 | [Evaluation](experiments/013-evaluation/README.md) | 🟢 **Verified end-to-end** — `pnpm eval`: recall@3 100%, MRR 0.896 vs 0.736 lexical |
 | 014 | [Observability](experiments/014-observability/README.md) | 🟢 **Verified end-to-end** — correlation ids, p50 6ms / p95 1579ms; **Exp. 001 provider leak closed** |
+| 015 | [Persistence](experiments/015-persistence/README.md) | 🟢 **Verified end-to-end** — SQLite; **Exp. 003 forgery and Exp. 012 revocation both closed** |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

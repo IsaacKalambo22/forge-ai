@@ -1,15 +1,16 @@
 import { guard } from "@/lib/guard";
 import { analyzeConversation } from "@/lib/ai";
-import { MAX_TURNS, isChatMessage } from "@/lib/messages";
 import { observe, failure } from "@/lib/observe";
+import { transcripts } from "@/lib/transcripts";
 
 export async function POST(request: Request) {
   return observe("analyze", (requestId) => handle(request, requestId));
 }
 
+// Experiment 015: takes a conversation id, not a conversation. Same reasoning
+// as /api/chat — this route used to accept whatever history the client sent,
+// which meant it analysed a conversation that need not have happened.
 async function handle(request: Request, requestId: string) {
-  // Auth, rate limit and budget — before ANY work, and before the first
-  // byte, so a real status code is still available (Experiment 004).
   const denied = guard(request, "analyze");
   if (denied !== null) return denied;
 
@@ -20,24 +21,20 @@ async function handle(request: Request, requestId: string) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { messages } = (body ?? {}) as { messages?: unknown };
+  const { conversation_id: conversationId } = (body ?? {}) as { conversation_id?: unknown };
 
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return Response.json({ error: "messages must be a non-empty array" }, { status: 400 });
+  if (typeof conversationId !== "string" || conversationId.trim() === "") {
+    return Response.json({ error: "conversation_id must be a string" }, { status: 400 });
   }
 
-  if (messages.length > MAX_TURNS) {
-    return Response.json(
-      { error: `Conversation too long (max ${MAX_TURNS} turns)` },
-      { status: 400 },
-    );
+  if (transcripts.get(conversationId) === null) {
+    return Response.json({ error: "Unknown conversation" }, { status: 404 });
   }
 
-  if (!messages.every(isChatMessage)) {
-    return Response.json(
-      { error: "Each message needs a role of user|assistant and non-empty string content" },
-      { status: 400 },
-    );
+  const messages = transcripts.read(conversationId);
+
+  if (messages.length === 0) {
+    return Response.json({ error: "Conversation has no turns yet" }, { status: 400 });
   }
 
   // This route does NOT stream, so unlike /api/chat it can still use real
@@ -61,8 +58,6 @@ async function handle(request: Request, requestId: string) {
       stop_reason: response.stop_reason,
     });
   } catch (error) {
-    // Was: `Analysis failed: ${error.message}` — the provider's raw text,
-    // straight to the browser. Experiment 014 closes that.
     return failure(requestId, "analyze", "Analysis failed", 502, error);
   }
 }

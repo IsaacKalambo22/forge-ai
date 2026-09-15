@@ -4,6 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { consume, evictIdle, newBucket, type Bucket, type Limit } from "./ratelimit";
 import { SESSION_COOKIE, readCookie, verifySession } from "./session";
+import { revocations } from "./revocation";
 
 // Per-caller allowance. Capacity is the burst; refill is the sustained rate.
 // 20 tokens refilling at 1/3 per second ≈ 20 chat calls per minute sustained.
@@ -88,10 +89,16 @@ function checkAuth(request: Request): Response | null {
   if (bearer !== "" && secretMatches(bearer, expected)) return null;
 
   const cookie = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
-  if (cookie !== null && verifySession(cookie, expected, Date.now()).valid) return null;
+  if (cookie !== null && verifySession(cookie, expected, Date.now()).valid) {
+    // Experiment 015. The signature says the token is AUTHENTIC; it cannot say
+    // whether it has been logged out, because signing is stateless and a logout
+    // is a fact about the world after the token was issued. The denylist is the
+    // only thing that knows.
+    if (!revocations.isRevoked(cookie)) return null;
+  }
 
-  // No distinction between missing, wrong, expired or forged — the difference
-  // is information an attacker can use.
+  // No distinction between missing, wrong, expired, forged or revoked — the
+  // difference is information an attacker can use.
   return Response.json({ error: "Unauthorized" }, { status: 401 });
 }
 
@@ -105,7 +112,9 @@ export function hasValidSession(request: Request): boolean {
   const secret = process.env.APP_SECRET;
   if (secret === undefined || secret === "") return true; // dev: open
   const cookie = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
-  return cookie !== null && verifySession(cookie, secret, Date.now()).valid;
+  if (cookie === null) return false;
+  if (!verifySession(cookie, secret, Date.now()).valid) return false;
+  return !revocations.isRevoked(cookie);
 }
 
 /**

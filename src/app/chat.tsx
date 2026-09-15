@@ -9,9 +9,14 @@ import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
 export default function Chat() {
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState<PersonaId>("default");
-  // This array IS the conversation. The API remembers nothing, so whatever is
-  // in here — and only what is in here — is what the model will ever know.
+  // Experiment 015. This array is now only what the screen SHOWS. The server
+  // holds the real transcript; this is a local echo of it, and the id below is
+  // the only handle the browser has on the real thing.
+  //
+  // Before 015 this array WAS the conversation — it was sent in full on every
+  // request, which meant the browser could claim the model had said anything.
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The partial reply, rebuilt as deltas arrive. It is NOT in `messages` yet —
@@ -46,9 +51,14 @@ export default function Chat() {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // The WHOLE conversation goes every time, not just the new question.
-      // Only the persona *id* crosses the boundary; the prompt text never does.
-      body: JSON.stringify({ messages: next, persona }),
+      // Experiment 015: an id and ONE message. The history no longer crosses
+      // the boundary at all, in either direction. `persona` is only read when
+      // the server creates a new conversation.
+      body: JSON.stringify({
+        conversation_id: conversationId ?? undefined,
+        message: question,
+        persona,
+      }),
     });
 
     // A non-200 here means the request was rejected BEFORE streaming began —
@@ -80,7 +90,11 @@ export default function Chat() {
         if (line.trim() === "") continue;
         const event = JSON.parse(line) as StreamEvent;
 
-        if (event.type === "text") {
+        if (event.type === "conversation") {
+          // Arrives before any model output, so a turn that fails halfway still
+          // leaves the browser able to resume the right conversation.
+          setConversationId(event.id);
+        } else if (event.type === "text") {
           answer += event.text;
           setStreaming(answer);
         } else if (event.type === "done") {
@@ -113,8 +127,21 @@ export default function Chat() {
     setLoading(false);
   }
 
+  // The persona is fixed when the server creates a conversation, so changing it
+  // starts a new one rather than silently applying to a transcript whose
+  // earlier turns were produced under different instructions.
+  function changePersona(next: PersonaId) {
+    setPersona(next);
+    setConversationId(null);
+    setMessages([]);
+    setAnalysis(null);
+    setMeta(null);
+    setActivity([]);
+    setError(null);
+  }
+
   async function analyse() {
-    if (messages.length === 0 || analysing) return;
+    if (conversationId === null || messages.length === 0 || analysing) return;
 
     setAnalysing(true);
     setError(null);
@@ -123,7 +150,7 @@ export default function Chat() {
     const response = await fetch("/api/analyze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ conversation_id: conversationId }),
     });
 
     const data = await response.json();
@@ -196,7 +223,7 @@ export default function Chat() {
       <form onSubmit={send} className="flex gap-2">
         <select
           value={persona}
-          onChange={(event) => setPersona(event.target.value as PersonaId)}
+          onChange={(event) => changePersona(event.target.value as PersonaId)}
           className="rounded border border-zinc-300 px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900"
         >
           {PERSONA_IDS.map((id) => (
@@ -223,15 +250,22 @@ export default function Chat() {
       <button
         type="button"
         onClick={analyse}
-        disabled={messages.length === 0 || analysing}
+        disabled={conversationId === null || messages.length === 0 || analysing}
         className="self-start rounded border border-zinc-300 px-3 py-1 text-sm disabled:opacity-50 dark:border-zinc-700"
       >
         {analysing ? "Analysing…" : "Analyse conversation"}
       </button>
 
       <p className="text-sm text-zinc-500">
-        {messages.length} messages in context · {remaining} turns before the server
-        cap. Every one of them is resent, and re-billed, on every request.
+        {messages.length} turns · {remaining} before the server cap.
+        {conversationId !== null && (
+          <>
+            {" "}
+            Conversation{" "}
+            <code className="font-mono text-xs">{conversationId.slice(0, 8)}</code>,
+            stored on the server — this page sends only an id and your next message.
+          </>
+        )}
       </p>
     </div>
   );
