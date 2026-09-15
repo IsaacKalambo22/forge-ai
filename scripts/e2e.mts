@@ -92,22 +92,31 @@ try {
   ok("the test server was seeded with cached embeddings", server.seededEmbeddings > 0,
     `${server.seededEmbeddings} vectors copied from the dev cache`);
 
-  const firstAsk = await alice.json("/api/ask", { question: "what is prompt injection?" });
+  // Use fetch() rather than json(), so the status, body and HEADERS all come
+  // from the SAME response. Checking Retry-After on a follow-up request is a
+  // race: by then the index may be ready and the header legitimately absent.
+  const firstAsk = await alice.fetch("/api/ask", {
+    method: "POST", body: JSON.stringify({ question: "what is prompt injection?" }),
+  });
+  const firstBody = await firstAsk.text();
   // The first caller triggers the build and is told so, rather than queuing.
   ok("the first request is answered, not hung",
     firstAsk.status === 503 || firstAsk.status === 200, `HTTP ${firstAsk.status}`);
   if (firstAsk.status === 503) {
-    eq("with an honest error", (firstAsk.body as { error: string }).error.includes("still building"), true);
-    const retryAfter = (await alice.fetch("/api/ask", {
-      method: "POST", body: JSON.stringify({ question: "x" }),
-    })).headers.get("retry-after");
-    ok("and a Retry-After header", retryAfter !== null, retryAfter ?? "(none)");
+    ok("with an honest error", firstBody.includes("still building"), firstBody.slice(0, 80));
+    ok("and a Retry-After header on that same response",
+      firstAsk.headers.get("retry-after") !== null,
+      firstAsk.headers.get("retry-after") ?? "(none)");
   }
 
   // Wait for the build, then confirm the route actually works.
   let ready = false;
   for (let i = 0; i < 60 && !ready; i++) {
-    const probe = await alice.stream("/api/ask", { question: "what is prompt injection?" });
+    // A connection can drop while the server is busy building; that is not a
+    // failure of the thing under test, so retry rather than abort the suite.
+    const probe = await alice
+      .stream("/api/ask", { question: "what is prompt injection?" })
+      .catch(() => ({ status: 0, events: [] as never[] }));
     if (probe.status === 200) {
       ready = true;
       const sources = probe.events.find((e) => e.type === "sources");

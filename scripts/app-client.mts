@@ -154,7 +154,18 @@ export async function startServer(port = randomPort()): Promise<Server> {
     }
   }
 
-  // The server has booted and migrated, so its schema exists and is its own.
+  // Force the database into existence before seeding.
+  //
+  // The readiness probe hits /api/metrics, which `guard()` rejects with 401
+  // BEFORE touching the database — so at this point the file does not exist and
+  // seeding silently copied nothing. A failed login does reach `users`, which
+  // opens the connection and runs every migration.
+  await fetch(`${url}/api/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "nobody", password: "not-a-real-password" }),
+  }).catch(() => {});
+
   const seeded = seedEmbeddingCache(join(dir, "e2e.db"));
 
   return {

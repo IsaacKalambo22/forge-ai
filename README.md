@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–023 complete.** `pnpm check` → all gates pass (~38s):
-types · lint · 593 unit · 32 end-to-end · retrieval benchmark.
+**Experiments 001–024 complete.** `pnpm check` → all gates pass:
+types · lint · 630 unit · 39 end-to-end · retrieval benchmark.
 
-Currently building: **Experiment 024 — Making the Index Affordable.**
+Currently building: **Experiment 025 — Warming the Index Before Anyone Asks.**
 
 ### Completed
 
@@ -26,7 +26,7 @@ Currently building: **Experiment 024 — Making the Index Affordable.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 593 assertions, no framework
+- [x] Test suite — 630 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
@@ -38,13 +38,14 @@ Currently building: **Experiment 024 — Making the Index Affordable.**
 - [x] End-to-end suite — `pnpm e2e`, 32 assertions through the front door
 - [x] Continuous verification — `pnpm check`, a pre-push hook, and CI
 - [x] Injection tested against the real corpus — which genuinely contains payloads
+- [x] Affordable index — cached embeddings, 196.8s → 0.071s on a warm build
 
 ### Currently building
 
-- [ ] **024 — Making the Index Affordable.** Measured in 023: the notebook index is
-      **256 chunks and takes 8.6 minutes** to build from scratch on every restart,
-      at ~850 MB. It was 65 chunks in Experiment 008. Every README written makes it
-      worse, and nothing tells a waiting user it is happening.
+- [ ] **025 — Warming the Index Before Anyone Asks.** 024 made the repeat cost nearly
+      free and left the first one at 196.8s — paid by whoever arrives first after a
+      deploy, and by CI on every run, because the workflow caches `node_modules` but
+      not the 407 KB embedding cache.
 
 ### Blocked — no Anthropic API credential
 
@@ -359,6 +360,29 @@ CI ([.github/workflows/check.yml](.github/workflows/check.yml)), which is the co
 that cannot be skipped with `--no-verify`. See
 [Experiment 022](experiments/022-continuous-verification/README.md).
 
+## Index cost
+
+The notebook index is rebuilt on startup and embedding it is the slowest thing this
+process does. Since Experiment 024 the vectors are cached in SQLite, keyed by a hash of
+the text and the model:
+
+| | Before | Cold | Warm |
+| --- | --- | --- | --- |
+| build | **516.6 s** | **196.8 s** | **0.071 s** |
+
+Two separate wins. Caching removes the repeat cost — a chunk whose text has not changed
+is never re-embedded, and because the key is the *text*, moving a section between files
+costs nothing. Batching (16 at a time, rather than one call with all 271 chunks) cut the
+**cold** build too: a batch is padded to its longest member, so one long passage was
+inflating every other text in the call.
+
+Cached vectors are bit-identical to fresh ones (cosine `1.000000000`, max component
+delta `0.00e+0`), and `pnpm eval` confirms retrieval is unchanged.
+
+While the index is building, `/api/ask` and `/api/agent` return **503 with
+`Retry-After`** rather than waiting in silence. See
+[Experiment 024](experiments/024-affordable-index/README.md).
+
 ## End-to-end
 
 Every route used to be checked by hand with `curl` — 500+ unit assertions proved the
@@ -458,6 +482,7 @@ src/
     ├── context.ts            # token estimation, window, cost projection — no imports
     ├── claims.ts             # the verification debt as data + pure evaluators
     ├── ndjson.ts             # the ONE NDJSON reader — chat, ask, e2e all share it
+    ├── embedcache.ts         # "server-only": content-addressed vector cache
     ├── usage.ts              # "server-only": the spend ledger
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
@@ -468,7 +493,7 @@ docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
 scripts/                      # `pnpm eval` · `pnpm cost` · `pnpm verify` · `pnpm e2e`
 tests/                        # `pnpm test` — 471 assertions, no framework
-.data/forge.db                # SQLite — users, transcripts, sessions, usage ledger
+.data/forge.db                # SQLite — users, transcripts, sessions, usage, embeddings
 ```
 
 ## Architecture
@@ -539,6 +564,7 @@ is the deliverable; the code is the apparatus.
 | 021 | [End-to-End](experiments/021-end-to-end/README.md) | 🟢 **Verified** — first e2e suite, 32 assertions; `pnpm verify` now 9/9; a process leak found and fixed |
 | 022 | [Continuous Verification](experiments/022-continuous-verification/README.md) | 🟢 **Verified** — `pnpm check` gate (~38s), pre-push hook fires; CI written, not yet run |
 | 023 | [Injection, Beyond the Unit Test](experiments/023-injection-end-to-end/README.md) | 🟢 **Verified** — the corpus really contains payloads; renderer holds. Surfaced an 8.6-min index build |
+| 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — warm build 196.8s → **0.071s**; batching cut the cold build 516.6s → 196.8s |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

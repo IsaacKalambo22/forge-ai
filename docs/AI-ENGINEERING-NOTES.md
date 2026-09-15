@@ -1996,6 +1996,57 @@ report readiness         a request that waits minutes in silence is a bug
 **A cold-start cost that scales with your documentation is a cost that only appears
 once the project is going well.**
 
+### Embeddings are deterministic, therefore cacheable
+
+The same text through the same model always gives the same vector. Measured in
+ForgeAI:
+
+```text
+cold  271 chunks, 0 cached     196.8 s
+warm  271 chunks, 271 cached     0.071 s     ≈ 2,770x
+```
+
+Key it on a **hash of the text**, not a file path or chunk index — a section that moves
+between documents, or shifts down as text is inserted above it, is the same text.
+Editing one paragraph should cost one embedding, not the whole corpus.
+
+Include the **model** in the key. Vectors from different models are not comparable, and
+mixing them yields meaningless similarities rather than an error.
+
+Store the raw float32 bytes. ForgeAI's cached vectors are bit-identical to fresh ones
+(max component delta `0.00e+0`) because the model emits float32 and the BLOB holds
+float32 — JSON would be ~8x larger and lossy in the last bits.
+
+A content-addressed cache is also **portable**: valid in any database, because the key
+describes the content rather than its location.
+
+### Batch size matters more than it looks: a batch is padded to its longest member
+
+ForgeAI embedded every chunk in one call. Bounding memory by batching at 16 also cut
+the cold build from **516.6 s to 196.8 s with more chunks** — because in one giant call,
+every short chunk was padded to the length of the longest passage in the corpus and the
+model did that wasted work for all of them.
+
+**A memory fix that turns out to be a 2.6x speed fix is a sign the original code was
+doing work nobody asked for.**
+
+### Prove the fast version is not the worse version
+
+A speedup in retrieval is worthless if it quietly changes what is retrieved. Two checks,
+both cheap:
+
+```text
+fidelity   cached vector vs freshly computed, same text, real model
+quality    re-run the retrieval benchmark and compare to the recorded numbers
+```
+
+### 503 is the honest answer to "not ready"
+
+A request that blocks for minutes is indistinguishable from a hang — especially when
+the work is behind a cached promise, so later callers queue silently behind the first.
+Return **503 + `Retry-After`** and start the work in the background. It has to be
+decided before the first byte; past that the status is committed.
+
 ### A test suite can be rate-limited by the system it tests
 
 ForgeAI's e2e suite went from 32/32 to 30/32 between two runs thirty seconds apart:
@@ -2246,9 +2297,9 @@ Understand the trade-offs.
 
 # 44. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 023.**
+**Last updated: 2026-09-15, after Experiment 024.**
 
-Experiments 001–023 are built, documented and tested. One command, `pnpm check`, runs
+Experiments 001–024 are built, documented and tested. One command, `pnpm check`, runs
 every gate in ~38s, and a pre-push hook plus CI run it automatically. `pnpm test` runs 561 assertions
 across 24 files; `pnpm e2e` runs 32 end-to-end assertions against a real server. `npx tsc --noEmit` and `pnpm lint` are clean.
 
@@ -2276,7 +2327,7 @@ src/app/
   api/metrics   latency percentiles          (014)
 
 src/lib/        31 modules — see README for the trust annotations
-tests/          593 assertions, no framework
+tests/          630 assertions, no framework
 scripts/        pnpm eval · cost · verify · e2e · check (022, the gate)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
@@ -2356,6 +2407,8 @@ All 9 blocked claims have fixture-tested evaluators; only evidence is missing (0
 The full gate runs in ~38s; breaking a test on purpose stops it at that gate (022)
 The corpus really contains injection payloads; the renderer neutralised 5 (023)
 The notebook index is 256 chunks and takes 8.6 minutes to build (023)
+Caching embeddings: 196.8s cold → 0.071s warm; batching alone cut cold 2.6x (024)
+Cached vectors are bit-identical to fresh ones, and retrieval is unchanged (024)
 pnpm test 561/561 · pnpm e2e 32/32
 ```
 
