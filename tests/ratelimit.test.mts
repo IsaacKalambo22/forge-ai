@@ -16,7 +16,7 @@ ok("denied reports retry-after", !v.allowed && v.retryAfterSeconds === 1,
   !v.allowed ? `${v.retryAfterSeconds}s` : "");
 
 group("ratelimit — refill");
-let drained = consume(newBucket(limit, T), limit, 10, T);
+const drained = consume(newBucket(limit, T), limit, 10, T);
 ok("4s later, 5 requested → denied", !consume(drained.bucket, limit, 5, T + 4_000).allowed);
 ok("4s later, 4 requested → allowed", consume(drained.bucket, limit, 4, T + 4_000).allowed);
 ok("10s later → fully refilled", consume(drained.bucket, limit, 10, T + 10_000).allowed);

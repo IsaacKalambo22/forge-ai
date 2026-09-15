@@ -8,17 +8,52 @@ at a time.
 
 ## Status
 
-**Experiment 001 — Basic LLM Request.** In progress.
+**Experiments 001–013 complete.** `pnpm test` → 199/199. `pnpm lint` and
+`npx tsc --noEmit` → clean.
 
-| Piece | State |
-| --- | --- |
-| `POST /api/chat` route handler | ✅ Implemented, validation verified |
-| `askClaude()` provider adapter | ✅ Implemented |
-| Anthropic API key | ⛔ Not yet configured — see [Setup](#setup) |
-| Chat UI in `page.tsx` | ⬜ Not started |
+Currently building: **Experiment 014 — Observability.**
 
-Until a real API key is in place, the endpoint validates input correctly but cannot
-reach the model. This is expected, and the failure is documented below.
+### Completed
+
+- [x] Trust boundary: browser → route handler → AI service
+- [x] Request validation, real status codes
+- [x] Interactive chat UI, streaming (NDJSON)
+- [x] Server-owned system prompts / personas
+- [x] Conversation history, client-held, server turn cap
+- [x] Structured output with a zod schema
+- [x] Tool calling — safe arithmetic parser, capped loop
+- [x] Local embeddings (no API key, no network)
+- [x] Semantic search + RAG retrieval
+- [x] Prompt-injection defence — nonce-fenced passages
+- [x] Session auth, rate limiting, daily budget
+- [x] Test suite — 199 assertions, no framework
+- [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
+
+### Currently building
+
+- [ ] **014 — Observability.** Structured logs, latency percentiles, per-request
+      token counts, and a correlation id — which also closes the Experiment 001
+      debt of forwarding the provider's raw error text to the client.
+
+### Blocked — no Anthropic API credential
+
+Everything downstream of a live model call is built and type-checked but **never
+observed**: real `usage` / `stop_reason`, persona effects, schema conformance, the
+tool loop, the agent loop, generation quality.
+
+> A Claude.ai or ChatGPT **subscription is not an API credential.** They are separate
+> accounts with separate billing. See [Setup](#setup).
+
+This is recorded, not worked around. Retrieval is measurable *because* it was
+separated from generation.
+
+### Deferred
+
+- [ ] Server-side transcript storage (would fix forgeable client history, 003)
+- [ ] Session revocation before expiry — needs a shared store (012)
+- [ ] Persistence / database
+- [ ] CSRF token; multi-user identity
+- [ ] Production deployment hardening
 
 ## Setup
 
@@ -111,6 +146,35 @@ the 401 gets diagnosed from `curl`, but in production it leaks which provider is
 Logging it server-side and returning a correlation id instead is *deferred — revisit
 later*.
 
+## Evaluating retrieval
+
+Retrieval quality is a number, not an impression:
+
+```bash
+pnpm eval
+```
+
+Loads the local embedding model (no API key, no network) and scores the same
+`searchLessons()` the app calls against 16 labelled queries, beside a naive
+word-overlap baseline:
+
+```text
+  metric                          lexical    dense
+  ------------------------------ -------- --------
+  recall@3  (what /api/ask uses)      69%     100%
+  precision@3                         23%      35%   (ceiling 35%)
+  MRR                               0.736    0.896
+```
+
+The average understates the point. The whole gap is paraphrase — on
+`"My agent keeps going round and round and won't stop"`, whose matching lesson shares
+no content words with it, lexical ranks the answer **16th of 16** and the embedding
+ranks it **1st**.
+
+See [Experiment 013](experiments/013-evaluation/README.md), including the run where
+the benchmark's own integrity test caught four of the sixteen queries copying their
+wording from the answers they were meant to find.
+
 ## Project structure
 
 ```text
@@ -148,6 +212,8 @@ src/
     ├── session.ts            # signed session tokens — secret injected, testable
     ├── knowledge.ts          # "server-only": the notebook index (65 chunks)
     ├── corpus.ts             # the searchable lessons — client-safe
+    ├── metrics.ts            # recall@k, precision@k, MRR — no imports
+    ├── evalset.ts            # 16 labelled queries — the benchmark's judgement
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
     ├── tools.ts              # "server-only": tool definitions + execution
@@ -155,7 +221,8 @@ src/
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
-tests/                        # `pnpm test` — 160 assertions, no framework
+scripts/                      # `pnpm eval` — the retrieval benchmark
+tests/                        # `pnpm test` — 199 assertions, no framework
 ```
 
 ## Architecture
@@ -188,8 +255,10 @@ live, because it is the only code the user cannot edit: the system prompt, the m
 choice, `max_tokens`, rate limits, and the bill all depend on it. Every defence added
 later — auth, quotas, logging, tool permissions — hangs off this line.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the versioned architecture record
-and [docs/GLOSSARY.md](docs/GLOSSARY.md) for terminology.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the versioned architecture record,
+[docs/GLOSSARY.md](docs/GLOSSARY.md) for terminology, and
+[docs/AI-ENGINEERING-NOTES.md](docs/AI-ENGINEERING-NOTES.md) for the running concept
+notes — the long-term reference, organised by concept rather than by experiment.
 
 ## Experiments
 
@@ -210,7 +279,8 @@ is the deliverable; the code is the apparatus.
 | 009 | [Agent](experiments/009-agent/README.md) | 🟢 Loop built, stopping policy 12/12; loop never executed |
 | 010 | [Prompt Injection](experiments/010-prompt-injection/README.md) | 🟢 **Real vulnerability found and fixed** — 0/4 → 12/12 |
 | 011 | [Auth, Rate Limiting & Cost Control](experiments/011-auth-and-limits/README.md) | 🟢 **Verified end-to-end** — limiter 21/21, prod fails closed |
-| 012 | [Test Suite & Sessions](experiments/012-testing-and-sessions/README.md) | 🟢 **Verified end-to-end** — `pnpm test` 160/160, session flow working |
+| 012 | [Test Suite & Sessions](experiments/012-testing-and-sessions/README.md) | 🟢 **Verified end-to-end** — `pnpm test` 199/199, session flow working |
+| 013 | [Evaluation](experiments/013-evaluation/README.md) | 🟢 **Verified end-to-end** — `pnpm eval`: recall@3 100%, MRR 0.896 vs 0.736 lexical |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

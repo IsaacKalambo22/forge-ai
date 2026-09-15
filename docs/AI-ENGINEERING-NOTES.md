@@ -1080,40 +1080,113 @@ As an engineer, my goal is to learn how to build the **system around the model**
 
 # 33. Evaluation / Evals
 
-An AI system can appear to work while producing unreliable results.
+An AI system can appear to work while producing unreliable results. "This answer
+looks good" is not a measurement — it has no denominator, no baseline, and no record,
+so it cannot say tomorrow whether a change helped or hurt.
 
-Therefore we need **evaluation**.
+Built in Experiment 013. `pnpm eval`.
 
-Instead of:
+### Eval set
 
-> "This answer looks good."
+A fixed list of inputs paired with human judgements of what a correct output is. The
+metrics are arithmetic; **the labels are the judgement, and they are the part that can
+be silently wrong.**
 
-we create tests such as:
+In ForgeAI: `src/lib/evalset.ts` — 16 queries labelled against the 16 lessons in
+`corpus.ts`.
+
+### The three metrics, and why each alone is insufficient
+
+**recall@k** — of the answers that exist, what fraction reached the top k?
+*Did we find it.* Raising k can only ever raise recall, so recall alone is gameable:
+return the whole corpus and score 1.0.
+
+**precision@k** — of the k returned, what fraction were correct?
+*Did we return junk.* The counterweight. Return everything and precision collapses.
+
+**MRR** — mean of 1/(rank of first correct answer). Rank 1 → 1.0, rank 2 → 0.5,
+rank 4 → 0.25. The steep drop is deliberate: the app only sends the top k to the
+model, so a correct passage at rank 8 is nearly as useless as an absent one.
+
+Recall ignores order; MRR does not. That difference is why both exist.
+
+### Ceiling
+
+The best score attainable given the labels. Most ForgeAI queries have exactly one
+relevant lesson, so precision@3 cannot exceed 1/3 for them. **Measured precision@3 was
+35% against a ceiling of 35%** — at maximum, not failing. Print the ceiling or the
+number gets misread.
+
+### Baseline
+
+A deliberately naive alternative scored on the same set. Without one, a score is
+unfalsifiable.
+
+ForgeAI's control is word-overlap ranking. Measured:
 
 ```text
-Question
-Expected behavior
-Actual answer
-Score
+                    lexical   dense
+recall@3                69%    100%
+MRR                   0.736   0.896
 ```
 
-For example:
+The average hides where the difference lives. On queries with ordinary word overlap,
+the naive baseline is already competitive. **The entire gap is paraphrase**:
 
 ```text
-Question:
-What is the company's leave entitlement?
-
-Expected:
-32 days
-
-Model:
-32 days
-
-Result:
-PASS
+"My agent keeps going round and round and won't stop"
+    lexical → rank 16 of 16 (worst possible)
+    dense   → rank 1
 ```
 
-This allows AI systems to be tested systematically.
+The matching lesson ("Cap the agentic loop's iterations… a denial-of-service you
+perform on yourself") shares **no content words** with that query. This is what
+"semantic" means, demonstrated instead of asserted — and it is the entire
+justification for a vector index over keyword search.
+
+Robustness measured directly: dense MRR was 0.889 on deliberately low-overlap queries
+against 0.900 on the rest — a gap of 0.011. Paraphrase costs it almost nothing.
+
+### A benchmark needs tests more than ordinary code does
+
+It is code that reports on itself, so a broken one reports success.
+
+`tests/evalset.test.mts` asserts that no query copies more than half its content words
+from its own answer. **It failed on first run and named four of my sixteen queries.**
+I had written that rule as a comment at the top of the file and broken it within the
+hour, because I wrote the queries straight after reading the corpus and the lessons'
+phrasing was still in my head.
+
+The leaky queries would have scored *better*. Every one of those points would have
+measured string overlap rather than retrieval.
+
+Rules that follow from this:
+
+```text
+Write the labels BEFORE running the retriever.
+Adjusting labels after seeing output turns a benchmark into a mirror.
+
+Phrase queries from the SYMPTOM, not from the answer.
+
+Test the eval set itself: unknown ids, duplicates, coverage, overlap.
+A typo'd label scores 0 forever and looks like a retrieval bug.
+```
+
+### What a ceiling-bound benchmark can and cannot do
+
+ForgeAI's recall@3 is 100%. That means this benchmark **can no longer detect
+improvement — only damage.** It is a regression alarm, not a gradient. Restoring
+discrimination needs harder queries or a bigger corpus.
+
+### What is not measured
+
+Retrieval is not the application. The model still has to *use* the passage correctly,
+and measuring that needs an API credential this project does not have. Chunking is
+also unmeasured — the harness exists and has not been pointed at it.
+
+Retrieval was measurable at all only because Experiment 007 put the embedding model
+in-process. **Separating retrieval from generation is what made half the system
+observable without a credential.**
 
 ---
 
@@ -1269,111 +1342,116 @@ Understand the trade-offs.
 
 # 38. Current ForgeAI Status
 
-Current project:
+**Last updated: 2026-09-15, after Experiment 012.**
 
-```text
-forge-ai/
-```
+Experiments 001–012 are built, documented and tested. `pnpm test` runs 160 assertions
+across 10 files and passes. `npx tsc --noEmit` is clean.
 
 Stack:
 
 ```text
-Next.js
-React
-TypeScript
-Tailwind CSS
-Anthropic SDK
+Next.js 16 (App Router)   React 19   TypeScript   Tailwind v4
+@anthropic-ai/sdk   zod   @xenova/transformers (local embeddings)
 ```
 
-Current important files:
+What exists:
 
 ```text
-src/app/page.tsx
-src/lib/ai.ts
-package.json
+src/app/
+  page.tsx      Server Component shell
+  chat.tsx      streaming chat UI            (001–004)
+  ask.tsx       RAG over the notebook        (008)
+  login.tsx     password form                (012)
+  api/chat      NDJSON streaming             (004)
+  api/analyze   structured output            (005)
+  api/search    semantic search, no key      (007)
+  api/ask       RAG                          (008)
+  api/agent     agentic loop                 (009)
+  api/login     session issue / revoke       (012)
+
+src/lib/        18 modules — see README for the trust annotations
+tests/          160 assertions, no framework
 ```
 
-The Anthropic SDK is already installed.
+**The credential position.** `.env.local` still holds the placeholder
+`ANTHROPIC_API_KEY=your_actual_key`. This is a deliberate choice, not an oversight.
 
-`src/lib/ai.ts` already contains an Anthropic client and an `askClaude()` function.
+A Claude.ai or ChatGPT **subscription is not an API credential.** Consumer product
+access and API billing are separate accounts with separate payment. Nothing in a
+subscription produces an `sk-ant-...` key.
 
-However, the default `page.tsx` is still the Next.js starter page.
-
-Therefore the AI functionality has **not yet been connected to the user interface**.
+The consequence is recorded honestly throughout: everything downstream of a real
+model call is **built and type-checked but not observed**. See section 41.
 
 ---
 
 # 39. Current Architecture
 
-At this stage:
-
 ```text
-                 ┌──────────────────┐
-                 │     Browser      │
-                 │                  │
-                 │  page.tsx        │
-                 └────────┬─────────┘
-                          │
-                          │
-                          X
-                    Not connected
-                          │
-                          │
-                 ┌────────▼─────────┐
-                 │      ai.ts       │
-                 │                  │
-                 │  askClaude()     │
-                 └────────┬─────────┘
-                          │
-                          ▼
-                 Anthropic SDK
-                          │
-                          ▼
-                  Anthropic API
-                          │
-                          ▼
-                       Claude
+Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user controls this
+   │
+   │  POST  { messages[], persona }   ·   cookie: forge_session
+   │  ←     NDJSON stream
+   ▼ ──────────────────────────────────────────  trust boundary
+Route Handler  ·  app/api/*/route.ts            ← trusted: the user cannot edit this
+   │
+   ├─→ guard.ts       session check · rate limit · daily budget
+   ├─→ passage.ts     nonce-fenced untrusted text        (010)
+   ├─→ search.ts ─→ embeddings.ts   local model, no key  (007)
+   └─→ ai.ts          ANTHROPIC_API_KEY · system prompts · tool loop
+          │
+          ▼
+       api.anthropic.com/v1/messages
 ```
 
-The next engineering task is to connect these pieces safely.
+The boundary is the whole point. It is the only code the user cannot edit, so it is
+the only place the key, the system prompt, the model choice, `max_tokens`, the rate
+limit and the bill can live.
 
 ---
 
-# 40. Next Step
+# 40. What Is Verified, and What Is Not
 
-Experiment 001 will establish the first complete pipeline:
+This distinction matters more than any single lesson here. Three categories, per the
+operating rule — never write "working" because the code looks correct.
 
-```text
-User enters question
-        ↓
-Browser
-        ↓
-POST /api/chat
-        ↓
-Next.js Route Handler
-        ↓
-askClaude()
-        ↓
-Anthropic SDK
-        ↓
-Anthropic API
-        ↓
-LLM
-        ↓
-Response
-        ↓
-Browser
-```
-
-We will also expose useful measurements such as:
+**Observed — actually executed and watched:**
 
 ```text
-Input tokens
-Output tokens
-Latency
+Validation rejects empty / missing / non-string messages with HTTP 400
+A GET to a POST-only route returns 405
+Local embeddings run with no API key and no network (007)
+Semantic retrieval: top-4 improved 5/7 → 7/7 on a hand-labelled set (008)
+The nonce-fence injection defence: 0/4 → 12/12 (010)
+Rate limiter 21/21; production fails closed without a secret (011)
+Session issue → present → revoke, end to end (012)
+pnpm test 160/160
 ```
 
-The purpose is to understand the pipeline, not merely to create a chatbot.
+**Established engineering knowledge — true in general, relied on here:**
+
+```text
+The browser cannot hold a secret; anything it can send, the user can read
+The Messages API is stateless; the messages array IS the conversation
+A signed token is not an encrypted one — the holder may read, not alter
+The HTTP status is committed with the first byte, so a stream cannot 502 late
+```
+
+**Not yet verified — no API credential configured:**
+
+```text
+Any real Anthropic Message rendering in the UI
+Real token usage and stop_reason values
+Whether personas actually change model behaviour        (002)
+Whether the model conforms to the analysis schema       (005)
+Whether the tool loop ever executes                     (006)
+Whether the agent loop ever executes                    (009)
+Generation quality on retrieved passages                (008)
+```
+
+The third list is not a failure. It is an accurate boundary, and drawing it is the
+skill. Retrieval was measurable without a key precisely because it was separated
+from generation.
 
 ---
 
