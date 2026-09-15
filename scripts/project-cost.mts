@@ -89,3 +89,43 @@ const outputCost = today.outputTokens * RATES.output;
 console.log(`  Where the money goes at ${MAX_TURNS} turns, full history:`);
 console.log(`    input   ${pad(formatCost(inputCost), 10)}  ${((inputCost / today.costNanodollars) * 100).toFixed(0)}%   ← the only part context management can touch`);
 console.log(`    output  ${pad(formatCost(outputCost), 10)}  ${((outputCost / today.costNanodollars) * 100).toFixed(0)}%   ← billed at 5x, untouched by any strategy here\n`);
+
+// ---------------------------------------------------------------------------
+// Experiment 019 — the agent loop's own context.
+// ---------------------------------------------------------------------------
+const { projectAgentRun } = await import("@/lib/context");
+const { MAX_STEPS } = await import("@/lib/agent");
+
+const QUESTION = 50;
+const RESULT = 800;   // a retrieved passage
+const ASSISTANT = 60; // the model's tool request
+
+console.log(`${"─".repeat(72)}\n`);
+console.log(`  Agent loop — one user question, up to MAX_STEPS = ${MAX_STEPS} iterations`);
+console.log(`  ${QUESTION} token question, ${RESULT}-token results, keepRecent = 1\n`);
+
+console.log(`  ${pad("strategy", 15)} ${pad("input", 7)} ${pad("cacheRead", 10)} ${pad("cacheWrite", 11)} ${pad("cost", 9)}`);
+console.log(`  ${"-".repeat(15)} ${"-".repeat(7)} ${"-".repeat(10)} ${"-".repeat(11)} ${"-".repeat(9)}`);
+
+const agentStrategies = ["full", "cached", "pruned", "pruned+cached"] as const;
+for (const strategy of agentStrategies) {
+  const p = projectAgentRun(strategy, MAX_STEPS, QUESTION, RESULT, ASSISTANT, RATES);
+  console.log(
+    `  ${pad(strategy, 15)} ${pad(String(p.inputTokens), 7)}` +
+    ` ${pad(String(p.cacheReadTokens), 10)} ${pad(String(p.cacheWriteTokens), 11)}` +
+    ` ${pad(formatCost(p.costNanodollars), 9)}`,
+  );
+}
+
+const agentFull = projectAgentRun("full", MAX_STEPS, QUESTION, RESULT, ASSISTANT, RATES);
+const agentPruned = projectAgentRun("pruned", MAX_STEPS, QUESTION, RESULT, ASSISTANT, RATES);
+const agentBoth = projectAgentRun("pruned+cached", MAX_STEPS, QUESTION, RESULT, ASSISTANT, RATES);
+
+console.log(`\n  Pruning wins here, and combining it with caching is WORSE than pruning`);
+console.log(`  alone. Caching is a PREFIX match and needs an append-only history;`);
+console.log(`  pruning EDITS earlier results, so the cache is invalidated from that`);
+console.log(`  point. Reads collapse from ${projectAgentRun("cached", MAX_STEPS, QUESTION, RESULT, ASSISTANT, RATES).cacheReadTokens} to ${agentBoth.cacheReadTokens} while the 1.25x write`);
+console.log(`  premium is still paid in full.\n`);
+console.log(`  Chosen: pruning. ${formatCost(agentFull.costNanodollars)} → ${formatCost(agentPruned.costNanodollars)} per agent run`);
+console.log(`  (${(((agentFull.costNanodollars - agentPruned.costNanodollars) / agentFull.costNanodollars) * 100).toFixed(0)}% cheaper) — but see the experiment README: the quality cost of`);
+console.log(`  clearing passages the agent is asked to CITE is unverified.\n`);

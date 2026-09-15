@@ -12,6 +12,7 @@ import type { PersonaId } from "./personas";
 import { decide, explain, type AgentStep } from "./agent";
 import { makeNonce, passageInstructions, renderPassages } from "./passage";
 import { retrieve } from "./knowledge";
+import { pruneToolResults, type Message } from "./context";
 import { MAX_TOOL_ITERATIONS, TOOL_DEFINITIONS, executeTool } from "./tools";
 
 const anthropic = new Anthropic({
@@ -282,6 +283,12 @@ export async function* answerFromNotebook(
 // context by calling search_notebook, instead of being handed passages it did
 // not ask for (Experiment 008). The stopping rules live in agent.ts so they can
 // be tested without running a model.
+/**
+ * How many recent tool results keep their full content. Half of MAX_STEPS.
+ * See the note in the loop: this number is a hedge, not a measurement.
+ */
+const KEEP_RECENT_RESULTS = 3;
+
 export async function* runAgent(question: string): AsyncGenerator<StreamEvent> {
   const working: Anthropic.MessageParam[] = [
     { role: "user", content: question },
@@ -315,12 +322,32 @@ export async function* runAgent(question: string): AsyncGenerator<StreamEvent> {
       return;
     }
 
+    // Experiment 019. The working history is re-sent on every iteration, so a
+    // 6-step run pays for the accumulated tool results six times. Retrieved
+    // passages are the bulk of it and are mostly needed only by the step that
+    // asked for them.
+    //
+    // PRUNING, NOT CACHING — the opposite of the choice made for conversations
+    // in 018, and for a reason worth stating. Caching needs an APPEND-ONLY
+    // history: it is a prefix match, so a stable prefix is what makes it work.
+    // Pruning EDITS earlier results, which moves the divergence point backwards
+    // and invalidates the cache from there. Measured, combining the two reads
+    // only 922 tokens from cache where caching alone reads 8850, while still
+    // paying the full 1.25x write premium — worse than either alone.
+    //
+    // UNVERIFIED, AND THE RISK IS SPECIFIC: this agent is asked to cite the
+    // passages it used, and a cleared passage cannot be cited. `keepRecent` is
+    // set to half of MAX_STEPS as a hedge, but that is a judgement made WITHOUT
+    // a quality measurement, because measuring it needs an API credential. The
+    // harness built in Experiment 013 is the right tool to settle it.
+    const messages = pruneToolResults(working as Message[], KEEP_RECENT_RESULTS);
+
     const stream = anthropic.messages.stream({
       model: "claude-opus-5",
       max_tokens: 1024,
       system,
       tools: TOOL_DEFINITIONS,
-      messages: working,
+      messages: messages as Anthropic.MessageParam[],
     });
 
     for await (const event of stream) {

@@ -1774,6 +1774,62 @@ ledger — billing uses the `usage` the API returns.
 
 **An estimate that leaks into an invoice is a lie with a decimal point.**
 
+### Agent loops have the same curve, on a shorter axis
+
+An agent re-sends its working history on every iteration, so one user question pays
+for the accumulated tool results N times. The difference from a conversation: **the
+bulk is TOOL RESULTS**, and a stale search result is mostly ballast — which opens an
+option a conversation does not have. Throw it away.
+
+```text
+         strategy   input  cacheRead  cacheWrite     cost
+             full   13200          0           0   $0.0660
+           cached      50       8850        4300   $0.0316
+           pruned    5320          0           0   $0.0266
+    pruned+cached      50        922        4348   $0.0279
+```
+
+**You cannot simply DROP a stale tool result.** Every `tool_use` must have a matching
+`tool_result` with the same id — remove one and the request is *malformed, not
+cheaper*. Replace the content with a placeholder and keep the block.
+
+### Optimisations are not additive
+
+`pruned+cached` is worse than `pruned` alone, and the read/write split says why:
+
+```text
+cached          8850 read   4300 written    ← healthy reuse
+pruned+cached    922 read   4348 written    ← reuse collapsed ~90%
+```
+
+**Caching needs an APPEND-ONLY history.** It is a prefix match, so a stable prefix is
+the precondition. Pruning's whole job is to *edit* the prefix — so it destroys the
+condition caching depends on, while the 1.25x write premium is still paid in full.
+
+```text
+conversation (appends)     → cache it
+agent loop (edits/prunes)  → prune it, and do NOT also cache it
+```
+
+Two opposite conclusions, both correct, because the histories have different shapes.
+**Before combining two optimisations, ask whether the first breaks the precondition of
+the second.**
+
+### A model that cannot represent the mechanism still produces plausible numbers
+
+My first cost model summed a total per step and applied a cache discount to it. A
+total cannot express *where* two requests begin to differ — and "where" is the entire
+mechanic of prefix caching. It produced roughly-right numbers while being structurally
+incapable of showing the interaction above.
+
+The fix was to model each request as an ordered list of **segments** and find the
+first index where the current request diverges from the previous one — which is what a
+prefix cache actually does. The interaction then emerged from the model instead of
+having to be asserted.
+
+**Plausible numbers are the hardest kind of wrong to notice.** If a model cannot
+represent the phenomenon, agreeing with it proves nothing.
+
 ### The value of an instrument is that it can contradict you
 
 The measurement above existed only because Experiment 017 made cost readable. It then
@@ -1934,10 +1990,10 @@ Understand the trade-offs.
 
 # 43. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 018.**
+**Last updated: 2026-09-15, after Experiment 019.**
 
-Experiments 001–018 are built, documented and tested. `pnpm test` runs 471 assertions
-across 22 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
+Experiments 001–019 are built, documented and tested. `pnpm test` runs 499 assertions
+across 23 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -1963,7 +2019,7 @@ src/app/
   api/metrics   latency percentiles          (014)
 
 src/lib/        31 modules — see README for the trust annotations
-tests/          471 assertions, no framework
+tests/          499 assertions, no framework
 scripts/        pnpm eval (013) · pnpm cost (018)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
@@ -2037,7 +2093,8 @@ A budget in dollars refuses paid work and still allows free routes (017)
 Integer nanodollars sum exactly where floats drift by 1.4e-14 (017)
 History growth is quadratic: 4x the input per doubling of turns (018)
 Prefix caching is 53% cheaper than full history at 20 turns, losslessly (018)
-pnpm test 471/471
+Pruning + caching is WORSE than pruning alone: reuse collapses 8850 → 922 (019)
+pnpm test 499/499
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -2055,6 +2112,8 @@ A password needs a SLOW hash; a token needs a fast one. Opposite problems.
 Money is an integer, in a unit smaller than the smallest rate you multiply by
 Output tokens cost 5x input; a cache write only pays off on the second read
 Caching is a prefix match — volatile content must fall AFTER the breakpoint
+Caching needs an append-only history; editing the prefix destroys it
+A tool_result block cannot be dropped — only its content replaced
 Anything an attacker can measure is an output — timing and error choice included
 ```
 
@@ -2069,6 +2128,7 @@ Whether the tool loop ever executes                     (006)
 Whether the agent loop ever executes                    (009)
 Generation quality on retrieved passages                (008)
 A real cache hit — a cache that never hits costs 1.25x and looks fine (018)
+What keepRecent=3 costs in answer quality when passages must be cited (019)
 A ledger row written from a LIVE usage object — the arithmetic, schema,
 aggregation and enforcement are all verified; only the join to a real
 response is not (017)

@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–018 complete.** `pnpm test` → 471/471. `pnpm lint` and
+**Experiments 001–019 complete.** `pnpm test` → 499/499. `pnpm lint` and
 `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 019 — The Agent Loop's Own Context.**
+Currently building: **Experiment 020 — Closing the Verification Debt.**
 
 ### Completed
 
@@ -26,20 +26,20 @@ Currently building: **Experiment 019 — The Agent Loop's Own Context.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 471 assertions, no framework
+- [x] Test suite — 499 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
 - [x] Identity & authorization — real users, scrypt passwords, owned conversations
 - [x] Cost accounting — integer-nanodollar ledger, budgets enforced in dollars
 - [x] Context management — prefix caching, 53% cheaper at `MAX_TURNS`, lossless
+- [x] Agent-loop context — tool-result pruning, 60% cheaper per run
 
 ### Currently building
 
-- [ ] **019 — The Agent Loop's Own Context.** 018 fixed the quadratic *between*
-      requests and left it untouched *inside* one: the agent loop re-sends a growing
-      working history up to `MAX_STEPS = 6` times per user turn, at full price, with
-      no breakpoint.
+- [ ] **020 — Closing the Verification Debt.** Seven experiments now end blocked on
+      the same single thing, and two of them (018, 019) made *decisions* on projected
+      numbers. Build one harness that turns a credential into answers in a single run.
 
 ### Blocked — no Anthropic API credential
 
@@ -56,7 +56,8 @@ separated from generation.
 ### Deferred
 
 - [ ] Usage recording on ask / agent / analyze — only `/api/chat` records today
-- [ ] Prefix caching on ask / agent; caching the system prompt and tool definitions
+- [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every turn
+- [ ] Prefix caching on `/api/ask`
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
 - [ ] Tracing — which layer owns the latency, not just the total
@@ -262,6 +263,22 @@ Note also that **output is 5× input and no context strategy touches it**: at 20
 the input side is 71% of the bill. See
 [Experiment 018](experiments/018-context-management/README.md).
 
+The agent loop gets the **opposite** treatment — pruning, not caching:
+
+```text
+         strategy   input  cacheRead  cacheWrite      cost
+             full   13200          0           0   $0.0660
+           cached      50       8850        4300   $0.0316
+           pruned    5320          0           0   $0.0266
+    pruned+cached      50        922        4348   $0.0279
+```
+
+Caching is a prefix match and needs an **append-only** history. A conversation appends;
+a pruned agent loop *edits* earlier tool results, which invalidates the cache from the
+edit point — reuse collapses from 8850 tokens to 922 while the 1.25× write premium is
+still paid. **Combining the two optimisations is worse than either alone.** See
+[Experiment 019](experiments/019-agent-context/README.md).
+
 ## Observability
 
 ```bash
@@ -441,6 +458,7 @@ is the deliverable; the code is the apparatus.
 | 016 | [Identity & Authorization](experiments/016-identity-and-authz/README.md) | 🟢 **Verified end-to-end** — cross-user access returns 404, byte-identical to nonexistent |
 | 017 | [Cost & Token Accounting](experiments/017-cost-accounting/README.md) | 🟢 **Enforcement verified** — budgets in dollars, integer-nanodollar ledger; live `usage` still blocked |
 | 018 | [Context Management](experiments/018-context-management/README.md) | 🟢 **Projection verified** — prefix caching 53% cheaper at 20 turns, lossless; a real cache hit still blocked |
+| 019 | [Agent-Loop Context](experiments/019-agent-context/README.md) | 🟢 **Projection verified** — pruning 60% cheaper; **pruning + caching is worse than either alone** |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

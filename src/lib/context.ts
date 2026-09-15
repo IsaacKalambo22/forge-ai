@@ -164,3 +164,181 @@ export function project(
     costNanodollars, forgottenTurns,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Experiment 019 — the agent loop's own context.
+//
+// 018 fixed the quadratic BETWEEN requests and left it untouched INSIDE one.
+// The agent loop appends the model's tool_use blocks and our tool results to a
+// working history and re-sends the whole thing each iteration, up to MAX_STEPS
+// times within a single user turn.
+//
+// The difference from a conversation: the bulk here is TOOL RESULTS, and a
+// retrieved passage is large and usually only needed for the step that asked
+// for it. A conversation turn is something the user said and may refer back to;
+// a stale search result is mostly ballast.
+//
+// Structural types rather than the SDK's, so this file keeps its "no imports"
+// property — the same reason expression.ts and vector.ts have it.
+// ---------------------------------------------------------------------------
+
+export type Block = { type: string; [key: string]: unknown };
+export type Message = { role: "user" | "assistant"; content: string | Block[] };
+
+/** Placeholder left in place of a cleared result. */
+export const CLEARED_NOTICE = "[earlier tool result cleared to save context]";
+
+/**
+ * Clears the CONTENT of tool results older than the most recent `keepRecent`
+ * steps, leaving the blocks themselves in place.
+ *
+ * THE CONSTRAINT THAT MAKES THIS NON-OBVIOUS: every `tool_use` block must have
+ * a matching `tool_result` with the same `tool_use_id`. You cannot simply drop
+ * old results — the request becomes invalid and the API rejects it. So the
+ * block stays and only its content is replaced.
+ *
+ * That is also why this is not the same operation as a sliding window: a window
+ * removes messages, and removing half a tool_use/tool_result pair is a
+ * malformed request rather than a cheaper one.
+ */
+export function pruneToolResults(messages: Message[], keepRecent: number): Message[] {
+  if (!Number.isInteger(keepRecent) || keepRecent < 0) {
+    throw new Error(`keepRecent must be a non-negative integer, got ${keepRecent}`);
+  }
+
+  // Which messages carry tool results, oldest first.
+  const resultMessageIndexes = messages.flatMap((m, i) =>
+    Array.isArray(m.content) && m.content.some((b) => b.type === "tool_result") ? [i] : [],
+  );
+  const clearBefore = resultMessageIndexes.length - keepRecent;
+  if (clearBefore <= 0) return messages;
+
+  const toClear = new Set(resultMessageIndexes.slice(0, clearBefore));
+
+  return messages.map((message, i) => {
+    if (!toClear.has(i) || !Array.isArray(message.content)) return message;
+    return {
+      ...message,
+      content: message.content.map((block) =>
+        block.type === "tool_result"
+          ? { ...block, content: CLEARED_NOTICE }
+          : block,
+      ),
+    };
+  });
+}
+
+/** Rough token size of a working history, using the same heuristic as above. */
+export function estimateMessageTokens(messages: Message[]): number {
+  const PER_MESSAGE_OVERHEAD = 4;
+  let total = 0;
+  for (const message of messages) {
+    total += PER_MESSAGE_OVERHEAD;
+    if (typeof message.content === "string") {
+      total += estimateTokens(message.content);
+      continue;
+    }
+    for (const block of message.content) {
+      // Every string field in a block is sent, whatever it is called.
+      for (const value of Object.values(block)) {
+        if (typeof value === "string") total += estimateTokens(value);
+      }
+    }
+  }
+  return total;
+}
+
+export type AgentStrategy = "full" | "cached" | "pruned" | "pruned+cached";
+
+export type AgentProjection = {
+  strategy: AgentStrategy;
+  inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costNanodollars: number;
+};
+
+/**
+ * Projects one agent run: `steps` iterations, each adding a tool call and a
+ * result of `resultTokens`.
+ *
+ * Every step re-sends everything accumulated so far — the same curve as a
+ * conversation, on a shorter axis, inside a single HTTP request the user
+ * experiences as one question.
+ */
+export function projectAgentRun(
+  strategy: AgentStrategy,
+  steps: number,
+  questionTokens: number,
+  resultTokens: number,
+  assistantTokens: number,
+  rates: Rates,
+  keepRecent = 1,
+): AgentProjection {
+  if (!Number.isInteger(steps) || steps < 1) {
+    throw new Error(`steps must be a positive integer, got ${steps}`);
+  }
+
+  const prune = strategy === "pruned" || strategy === "pruned+cached";
+  const cache = strategy === "cached" || strategy === "pruned+cached";
+  const clearedTokens = estimateTokens(CLEARED_NOTICE);
+
+  /**
+   * The request sent at `step`, as an ordered list of segment sizes.
+   *
+   * Modelled as segments rather than a single total because prefix caching is
+   * positional: what matters is the first point at which this request DIFFERS
+   * from the last one. A total cannot express that.
+   */
+  function layout(step: number): number[] {
+    const segments = [questionTokens];
+    for (let s = 1; s <= step - 1; s++) {
+      segments.push(assistantTokens);
+      const isRecent = s > step - 1 - keepRecent;
+      segments.push(prune && !isRecent ? clearedTokens : resultTokens);
+    }
+    return segments;
+  }
+
+  let inputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+
+  for (let step = 1; step <= steps; step++) {
+    const current = layout(step);
+    const total = current.reduce((a, b) => a + b, 0);
+
+    if (!cache || step === 1) {
+      inputTokens += total;
+      continue;
+    }
+
+    // Where does this request stop matching the previous one? Everything before
+    // that point can be READ from cache; everything from it must be WRITTEN.
+    //
+    // THIS IS WHERE PRUNING AND CACHING FIGHT. Pruning does not append — it
+    // EDITS an earlier segment from a full result to a placeholder. That edit
+    // moves the divergence point backwards, invalidating the cache from there.
+    // Appending alone would leave the whole prior request intact as a prefix.
+    const previous = layout(step - 1);
+    let diverge = 0;
+    while (
+      diverge < previous.length &&
+      diverge < current.length &&
+      previous[diverge] === current[diverge]
+    ) {
+      diverge++;
+    }
+
+    const readable = current.slice(0, diverge).reduce((a, b) => a + b, 0);
+    cacheReadTokens += readable;
+    cacheWriteTokens += total - readable;
+  }
+
+  const costNanodollars =
+    inputTokens * rates.input +
+    cacheReadTokens * rates.cacheRead +
+    cacheWriteTokens * rates.cacheWrite;
+
+  return { strategy, inputTokens, cacheReadTokens, cacheWriteTokens, costNanodollars };
+}
