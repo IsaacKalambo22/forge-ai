@@ -1,9 +1,14 @@
 import { guard } from "@/lib/guard";
 import { searchLessons } from "@/lib/search";
+import { observe, failure } from "@/lib/observe";
 
 const MAX_QUERY_LENGTH = 500;
 
 export async function POST(request: Request) {
+  return observe("search", (requestId) => handle(request, requestId));
+}
+
+async function handle(request: Request, requestId: string) {
   // Auth, rate limit and budget — before ANY work, and before the first
   // byte, so a real status code is still available (Experiment 004).
   const denied = guard(request, "search");
@@ -35,8 +40,6 @@ export async function POST(request: Request) {
     const results = await searchLessons(query.trim());
     return Response.json({ results, ms: Date.now() - started });
   } catch (error) {
-    console.error("searchLessons failed:", error);
-    const detail = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: `Search failed: ${detail}` }, { status: 500 });
+    return failure(requestId, "search", "Search failed", 500, error);
   }
 }

@@ -3,8 +3,13 @@ import { runToolLoop } from "@/lib/ai";
 import { MAX_TURNS, isChatMessage } from "@/lib/messages";
 import { isPersonaId } from "@/lib/personas";
 import type { StreamEvent } from "@/lib/messages";
+import { observe, streamFailure } from "@/lib/observe";
 
 export async function POST(request: Request) {
+  return observe("chat", (requestId) => handle(request, requestId));
+}
+
+async function handle(request: Request, requestId: string) {
   // Auth, rate limit and budget — before ANY work, and before the first
   // byte, so a real status code is still available (Experiment 004).
   const denied = guard(request, "chat");
@@ -79,9 +84,10 @@ export async function POST(request: Request) {
           send(event);
         }
       } catch (error) {
-        console.error("runToolLoop failed:", error);
-        const detail = error instanceof Error ? error.message : "Unknown error";
-        send({ type: "error", error: `Model request failed: ${detail}` });
+        // The status line is already 200 (Experiment 004), so this error rides
+        // inside the body — and it used to carry the provider's raw text with
+        // it. Experiment 014 sends a correlation id instead.
+        send({ type: "error", error: streamFailure(requestId, "chat", "Model request failed", error) });
       } finally {
         controller.close();
       }

@@ -1,10 +1,15 @@
 import { guard } from "@/lib/guard";
 import { runAgent } from "@/lib/ai";
 import type { StreamEvent } from "@/lib/messages";
+import { observe, streamFailure } from "@/lib/observe";
 
 const MAX_QUESTION_LENGTH = 500;
 
 export async function POST(request: Request) {
+  return observe("agent", (requestId) => handle(request, requestId));
+}
+
+async function handle(request: Request, requestId: string) {
   // Auth, rate limit and budget — before ANY work, and before the first
   // byte, so a real status code is still available (Experiment 004).
   const denied = guard(request, "agent");
@@ -43,9 +48,10 @@ export async function POST(request: Request) {
           send(event);
         }
       } catch (error) {
-        console.error("runAgent failed:", error);
-        const detail = error instanceof Error ? error.message : "Unknown error";
-        send({ type: "error", error: `Agent failed: ${detail}` });
+        // The status line is already 200 (Experiment 004), so this error rides
+        // inside the body — and it used to carry the provider's raw text with
+        // it. Experiment 014 sends a correlation id instead.
+        send({ type: "error", error: streamFailure(requestId, "agent", "Agent failed", error) });
       } finally {
         controller.close();
       }

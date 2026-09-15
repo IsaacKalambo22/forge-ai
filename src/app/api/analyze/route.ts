@@ -1,8 +1,13 @@
 import { guard } from "@/lib/guard";
 import { analyzeConversation } from "@/lib/ai";
 import { MAX_TURNS, isChatMessage } from "@/lib/messages";
+import { observe, failure } from "@/lib/observe";
 
 export async function POST(request: Request) {
+  return observe("analyze", (requestId) => handle(request, requestId));
+}
+
+async function handle(request: Request, requestId: string) {
   // Auth, rate limit and budget — before ANY work, and before the first
   // byte, so a real status code is still available (Experiment 004).
   const denied = guard(request, "analyze");
@@ -45,7 +50,7 @@ export async function POST(request: Request) {
     // is a case to handle, not an assertion to wave through with `!`.
     if (response.parsed_output === null) {
       return Response.json(
-        { error: "Model output did not match the schema" },
+        { error: "Model output did not match the schema", request_id: requestId },
         { status: 502 },
       );
     }
@@ -56,8 +61,8 @@ export async function POST(request: Request) {
       stop_reason: response.stop_reason,
     });
   } catch (error) {
-    console.error("analyzeConversation failed:", error);
-    const detail = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: `Analysis failed: ${detail}` }, { status: 502 });
+    // Was: `Analysis failed: ${error.message}` — the provider's raw text,
+    // straight to the browser. Experiment 014 closes that.
+    return failure(requestId, "analyze", "Analysis failed", 502, error);
   }
 }

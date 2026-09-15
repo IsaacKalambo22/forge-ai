@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–013 complete.** `pnpm test` → 199/199. `pnpm lint` and
+**Experiments 001–014 complete.** `pnpm test` → 264/264. `pnpm lint` and
 `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 014 — Observability.**
+Currently building: **Experiment 015 — Persistence.**
 
 ### Completed
 
@@ -26,14 +26,15 @@ Currently building: **Experiment 014 — Observability.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 199 assertions, no framework
+- [x] Test suite — 264 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
+- [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 
 ### Currently building
 
-- [ ] **014 — Observability.** Structured logs, latency percentiles, per-request
-      token counts, and a correlation id — which also closes the Experiment 001
-      debt of forwarding the provider's raw error text to the client.
+- [ ] **015 — Persistence.** One missing thing behind three recorded debts:
+      forgeable client-held history (003), in-process state that dies on restart
+      (011, 014), and sessions that cannot be revoked before expiry (012).
 
 ### Blocked — no Anthropic API credential
 
@@ -49,9 +50,9 @@ separated from generation.
 
 ### Deferred
 
-- [ ] Server-side transcript storage (would fix forgeable client history, 003)
-- [ ] Session revocation before expiry — needs a shared store (012)
-- [ ] Persistence / database
+- [ ] Tracing — which layer owns the latency, not just the total
+- [ ] Log shipping and retention — stdout is enough for one process, not two
+- [ ] Token counts / cost per request — blocked on the credential, not on design
 - [ ] CSRF token; multi-user identity
 - [ ] Production deployment hardening
 
@@ -128,23 +129,52 @@ be inspected. Four fields are worth reading every time:
 
 ### Known failure: no API key
 
-With a placeholder or missing key, the model call returns **HTTP 500**, while the
-server log shows the real cause:
+With the placeholder key, a model call fails upstream. Since Experiment 014 the client
+is told only this:
 
 ```text
-Error: 401 {"type":"error","error":{"type":"authentication_error",
-"message":"invalid x-api-key"}}
+HTTP/1.1 502 Bad Gateway
+x-request-id: hms069k2
+{"error":"Analysis failed","request_id":"hms069k2"}
 ```
 
-**Updated in Step 2:** the route now catches this and returns **HTTP 502** with the
-provider's message, so the failure is visible in the browser instead of only in the
-server log. 502 rather than 500, because the server is fine — the service it depends
-on is not.
+502 rather than 500, because the server is fine — the service it depends on is not.
 
-Forwarding the provider's text is a deliberate development-time trade-off. It is how
-the 401 gets diagnosed from `curl`, but in production it leaks which provider is in use.
-Logging it server-side and returning a correlation id instead is *deferred — revisit
-later*.
+The real cause goes to the server log under that id, redacted:
+
+```text
+{"level":"error","msg":"Analysis failed","request_id":"hms069k2","route":"analyze",
+ "status":502,"error":"401 {…\"message\":\"invalid x-api-key\"}"}
+```
+
+**This closes the debt recorded here since Experiment 001**, where the route forwarded
+the provider's raw text to the browser and so announced which vendor was behind it.
+Outside production the detail is still returned as `detail_dev_only`, because the
+curl-driven debugging loop depends on it; `NODE_ENV` is set by the framework, not by
+the request.
+
+## Observability
+
+```bash
+curl -s localhost:3000/api/metrics | python3 -m json.tool
+```
+
+```json
+"search": {
+  "count": 10,
+  "byStatus": { "200": 6, "400": 4 },
+  "errorRate": 0,
+  "latency": { "count": 10, "min": 0, "p50": 6, "p95": 1579, "max": 1579 }
+}
+```
+
+Two things worth reading in that. The **mean of those ten requests is 166ms, a figure
+describing none of them** — p50 is the steady state and p95 is the one cold request
+that loaded the embedding model. And the **error rate is 0 despite four 400s**,
+because a 400 means the client sent something invalid and the server behaved
+correctly; counting it would make the alarm ring for someone else's broken script.
+
+See [Experiment 014](experiments/014-observability/README.md).
 
 ## Evaluating retrieval
 
@@ -196,6 +226,8 @@ src/
 │       │   └── route.ts      # POST /api/search — semantic search, no API key needed
 │       ├── analyze/
 │       │   └── route.ts      # POST /api/analyze — structured output, real status codes
+│       ├── metrics/
+│       │   └── route.ts      # GET  /api/metrics — latency percentiles, status counts
 │       └── chat/
 │           └── route.ts      # POST /api/chat — the trust boundary, NDJSON stream
 └── lib/
@@ -214,6 +246,10 @@ src/
     ├── corpus.ts             # the searchable lessons — client-safe
     ├── metrics.ts            # recall@k, precision@k, MRR — no imports
     ├── evalset.ts            # 16 labelled queries — the benchmark's judgement
+    ├── stats.ts              # percentiles — no imports, no privileges
+    ├── log.ts                # structured JSON lines + redaction — no imports
+    ├── telemetry.ts          # bounded ring buffer + snapshot — pure core
+    ├── observe.ts            # "server-only": id, timer, log, leak-free failures
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
     ├── tools.ts              # "server-only": tool definitions + execution
@@ -222,7 +258,7 @@ src/
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
 scripts/                      # `pnpm eval` — the retrieval benchmark
-tests/                        # `pnpm test` — 199 assertions, no framework
+tests/                        # `pnpm test` — 264 assertions, no framework
 ```
 
 ## Architecture
@@ -281,6 +317,7 @@ is the deliverable; the code is the apparatus.
 | 011 | [Auth, Rate Limiting & Cost Control](experiments/011-auth-and-limits/README.md) | 🟢 **Verified end-to-end** — limiter 21/21, prod fails closed |
 | 012 | [Test Suite & Sessions](experiments/012-testing-and-sessions/README.md) | 🟢 **Verified end-to-end** — `pnpm test` 199/199, session flow working |
 | 013 | [Evaluation](experiments/013-evaluation/README.md) | 🟢 **Verified end-to-end** — `pnpm eval`: recall@3 100%, MRR 0.896 vs 0.736 lexical |
+| 014 | [Observability](experiments/014-observability/README.md) | 🟢 **Verified end-to-end** — correlation ids, p50 6ms / p95 1579ms; **Exp. 001 provider leak closed** |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

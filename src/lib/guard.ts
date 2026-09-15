@@ -23,6 +23,7 @@ const GLOBAL: Limit = {
 // weighting exists: one call can be six.
 export const COST = {
   search: 0, // local model only — rate-limited, but spends no money
+  metrics: 0, // reads in-process counters — but still auth'd and rate-limited
   chat: 1,
   analyze: 1,
   ask: 1,

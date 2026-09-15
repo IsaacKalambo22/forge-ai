@@ -1190,7 +1190,136 @@ observable without a credential.**
 
 ---
 
-# 34. The ForgeAI Learning Path
+# 34. Observability
+
+Evaluation (section 33) asks *is it good?* against a fixed labelled set, offline.
+Observability asks the paired question: **what is it actually doing on a request
+nobody labelled?**
+
+Built in Experiment 014.
+
+### Structured logging
+
+One JSON object per line, not a prose sentence.
+
+```text
+console.log("chat took", ms, "ms")
+```
+
+is readable by a human watching one terminal and useless to everything else — it
+cannot be filtered, counted, or have a percentile taken of it.
+
+```json
+{"level":"info","msg":"request","request_id":"u7z7lyci","route":"analyze",
+ "status":502,"ms":2905,"ts":"2026-09-15T07:25:31.329Z"}
+```
+
+can be queried by a machine and still read by a person.
+
+### Correlation id
+
+A short random id per request: returned to the client, stamped on every log line for
+that request.
+
+It is what lets the server **stop explaining its failures to the client.** The user
+reports an opaque `hms069k2`; the operator greps for it; the real cause is there.
+
+In ForgeAI this closed a debt open since Experiment 001. The routes used to return
+`Analysis failed: 401 {"type":"error",…"invalid x-api-key"}` — the provider's own
+text, announcing the vendor to anyone who poked the endpoint. Now:
+
+```text
+client ← {"error":"Analysis failed","request_id":"hms069k2"}
+log    → {…,"request_id":"hms069k2","error":"401 {…invalid x-api-key…}"}
+```
+
+Not a UUID: it gets read aloud, pasted into chat and screenshotted. 8 base-36
+characters is transcribable and unique enough within one log file, which is all it has
+to be. It is not a secret.
+
+### Redaction
+
+**Logs get shipped, retained, and read by people who are not you. A log that captures
+a secret has copied it somewhere with weaker access control than where it came from.**
+
+Two mechanisms, because neither alone is sufficient:
+
+```text
+by KEY NAME     authorization, cookie, x-api-key, password, token, session…
+by VALUE SHAPE  sk-ant-…  ·  Bearer …
+```
+
+Key-name matching misses a key pasted inside a free-text error message — which is
+exactly the shape an LLM provider's failures take. Value-shape matching misses a
+session cookie of arbitrary bytes that looks like nothing in particular.
+
+Redaction is defence in depth. The primary control is still *not logging secrets*.
+
+### Percentiles, not averages
+
+**The average hides the tail, and the tail is the user experience.**
+
+Measured on the first ten real `/api/search` requests in ForgeAI:
+
+```text
+16, 1579, 9, 16, 25, 6, 6, 0, 1, 1   ms
+
+mean = 166 ms   ← describes NO request in this set
+p50  =   6 ms   ← the steady state
+p95  = 1579 ms  ← the cold start, loading the embedding model
+```
+
+Nine fast requests and one slow one average to something that looks mildly slow
+everywhere, when in fact almost everything is instant and one user in ten waits.
+p50 says what is typical; p95 finds what the mean buried.
+
+Nearest-rank rather than interpolated, so every number returned is a real measurement
+that actually happened — which matters when you are about to go looking for the
+request that produced it.
+
+### 4xx is not an error rate
+
+A 400 means the **client** sent something invalid and the server behaved correctly.
+
+```json
+"search": {"byStatus": {"200": 6, "400": 4}, "errorRate": 0}
+```
+
+Counting 4xx would make this project's health metric read 40% failure because someone
+else's script is broken. Only 5xx counts.
+
+### Bound anything that accumulates
+
+An unbounded array of every request is a memory leak with a slow fuse: fine in
+development, exhausts the process in production. That is a self-inflicted outage
+caused by the code meant to *detect* outages. ForgeAI's telemetry is a fixed-size ring
+buffer, and reports `total` (ever seen) separately from `window` (still measurable) so
+the window is never mistaken for the truth.
+
+### What a timer actually measures
+
+For the three streaming routes, `ms` stops when the handler returns — and a streaming
+handler returns as soon as the stream is *opened*, before the model has produced a
+token. So it means **time-to-response-start, not total duration.** It answers "did we
+accept the request promptly" and not "how long did the user wait".
+
+A measurement whose meaning is undocumented will be misread. Write down what the
+number is, not just what it is called.
+
+### A bug in the tool you debug with
+
+The first correlation id was `Math.random().toString(36).slice(2, 10)`, which
+occasionally yields fewer than 8 characters and, for `Math.random() === 0`, an empty
+string. An empty correlation id fails **silently**: the user's error page and the log
+line simply stop matching, and the one time you need the mechanism is the one time it
+is not there.
+
+Negligible probability, one-line fix. **"Unlikely" is a reason not to panic, not a
+reason not to fix.**
+
+---
+
+# 35. The ForgeAI Learning Path
 
 The planned progression is:
 
@@ -1230,7 +1359,7 @@ What did I learn?
 
 ---
 
-# 35. My Engineering Philosophy
+# 36. My Engineering Philosophy
 
 ForgeAI is not supposed to become another tutorial project.
 
@@ -1256,7 +1385,7 @@ The goal is:
 
 ---
 
-# 36. Personal Career Direction
+# 37. Personal Career Direction
 
 My goal is to grow beyond simply implementing assigned software projects.
 
@@ -1302,7 +1431,7 @@ Areas I want to develop deeply:
 
 ---
 
-# 37. Rule for Learning New Technologies
+# 38. Rule for Learning New Technologies
 
 When encountering a new technical term, ask:
 
@@ -1340,12 +1469,12 @@ Understand the trade-offs.
 
 ---
 
-# 38. Current ForgeAI Status
+# 39. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 012.**
+**Last updated: 2026-09-15, after Experiment 014.**
 
-Experiments 001–012 are built, documented and tested. `pnpm test` runs 160 assertions
-across 10 files and passes. `npx tsc --noEmit` is clean.
+Experiments 001–014 are built, documented and tested. `pnpm test` runs 264 assertions
+across 14 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -1368,9 +1497,11 @@ src/app/
   api/ask       RAG                          (008)
   api/agent     agentic loop                 (009)
   api/login     session issue / revoke       (012)
+  api/metrics   latency percentiles          (014)
 
-src/lib/        18 modules — see README for the trust annotations
-tests/          160 assertions, no framework
+src/lib/        24 modules — see README for the trust annotations
+tests/          264 assertions, no framework
+scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
 
 **The credential position.** `.env.local` still holds the placeholder
@@ -1385,7 +1516,7 @@ model call is **built and type-checked but not observed**. See section 41.
 
 ---
 
-# 39. Current Architecture
+# 40. Current Architecture
 
 ```text
 Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user controls this
@@ -1410,7 +1541,7 @@ limit and the bill can live.
 
 ---
 
-# 40. What Is Verified, and What Is Not
+# 41. What Is Verified, and What Is Not
 
 This distinction matters more than any single lesson here. Three categories, per the
 operating rule — never write "working" because the code looks correct.
@@ -1425,7 +1556,11 @@ Semantic retrieval: top-4 improved 5/7 → 7/7 on a hand-labelled set (008)
 The nonce-fence injection defence: 0/4 → 12/12 (010)
 Rate limiter 21/21; production fails closed without a secret (011)
 Session issue → present → revoke, end to end (012)
-pnpm test 160/160
+Retrieval scored: recall@3 100%, MRR 0.896 vs 0.736 lexical (013)
+Correlation id ties client response to server log (014)
+Provider-leak fix confirmed in a real production build (014)
+Latency p50 6ms / p95 1579ms on real traffic (014)
+pnpm test 264/264
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -1435,6 +1570,8 @@ The browser cannot hold a secret; anything it can send, the user can read
 The Messages API is stateless; the messages array IS the conversation
 A signed token is not an encrypted one — the holder may read, not alter
 The HTTP status is committed with the first byte, so a stream cannot 502 late
+An average hides the tail; a log that captures a secret has moved that secret
+A 4xx is the client being wrong, not the server failing
 ```
 
 **Not yet verified — no API credential configured:**
@@ -1447,11 +1584,13 @@ Whether the model conforms to the analysis schema       (005)
 Whether the tool loop ever executes                     (006)
 Whether the agent loop ever executes                    (009)
 Generation quality on retrieved passages                (008)
+Token counts / cost per request — there has never been a usage object (014)
 ```
 
 The third list is not a failure. It is an accurate boundary, and drawing it is the
 skill. Retrieval was measurable without a key precisely because it was separated
-from generation.
+from generation — and so was every observability concern in 014, because latency,
+status codes and correlation ids are properties of *this* server, not of the model.
 
 ---
 
