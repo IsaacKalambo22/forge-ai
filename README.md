@@ -38,12 +38,12 @@ Currently building: **Experiment 025 — Warming the Index Before Anyone Asks.**
 - [x] End-to-end suite — `pnpm e2e`, 32 assertions through the front door
 - [x] Continuous verification — `pnpm check`, a pre-push hook, and CI
 - [x] Injection tested against the real corpus — which genuinely contains payloads
-- [x] Affordable index — cached embeddings, 196.8s → 0.071s on a warm build
+- [x] Affordable index — cached embeddings, tens of seconds → ~40ms on a warm build
 
 ### Currently building
 
 - [ ] **025 — Warming the Index Before Anyone Asks.** 024 made the repeat cost nearly
-      free and left the first one at 196.8s — paid by whoever arrives first after a
+      free and left the first one at tens of seconds — paid by whoever arrives first after a
       deploy, and by CI on every run, because the workflow caches `node_modules` but
       not the 407 KB embedding cache.
 
@@ -366,15 +366,20 @@ The notebook index is rebuilt on startup and embedding it is the slowest thing t
 process does. Since Experiment 024 the vectors are cached in SQLite, keyed by a hash of
 the text and the model:
 
-| | Before | Cold | Warm |
-| --- | --- | --- | --- |
-| build | **516.6 s** | **196.8 s** | **0.071 s** |
+| | cold | warm |
+| --- | --- | --- |
+| build | 66.9 s – 196.8 s | **0.036 s** |
 
-Two separate wins. Caching removes the repeat cost — a chunk whose text has not changed
-is never re-embedded, and because the key is the *text*, moving a section between files
-costs nothing. Batching (16 at a time, rather than one call with all 271 chunks) cut the
-**cold** build too: a batch is padded to its longest member, so one long passage was
-inflating every other text in the call.
+The cold spread is machine load, not code — see the correction in
+[Experiment 024](experiments/024-affordable-index/README.md). What is solid is the
+ratio: a warm build is three to four orders of magnitude faster, reproduced across
+runs.
+
+Caching removes the repeat cost — a chunk whose text has not changed is never
+re-embedded, and because the key is the *text*, moving a section between files costs
+nothing. Batching (16 at a time rather than one call with all 284 chunks) roughly
+halved peak memory, ~833 MB → 424 MB: a batch is padded to its longest member, so one
+long passage was inflating every other text in the call.
 
 Cached vectors are bit-identical to fresh ones (cosine `1.000000000`, max component
 delta `0.00e+0`), and `pnpm eval` confirms retrieval is unchanged.
@@ -564,7 +569,7 @@ is the deliverable; the code is the apparatus.
 | 021 | [End-to-End](experiments/021-end-to-end/README.md) | 🟢 **Verified** — first e2e suite, 32 assertions; `pnpm verify` now 9/9; a process leak found and fixed |
 | 022 | [Continuous Verification](experiments/022-continuous-verification/README.md) | 🟢 **Verified** — `pnpm check` gate (~38s), pre-push hook fires; CI written, not yet run |
 | 023 | [Injection, Beyond the Unit Test](experiments/023-injection-end-to-end/README.md) | 🟢 **Verified** — the corpus really contains payloads; renderer holds. Surfaced an 8.6-min index build |
-| 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — warm build 196.8s → **0.071s**; batching cut the cold build 516.6s → 196.8s |
+| 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — warm build ~**40ms** vs tens of seconds cold; one speed claim withdrawn, see the README |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

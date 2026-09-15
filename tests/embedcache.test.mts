@@ -4,13 +4,21 @@
 import { openDatabase } from "@/lib/db";
 import {
   textHash, vectorToBlob, blobToVector, lookup, store, countCached, embedCached,
+  createEmbeddingSchema,
 } from "@/lib/embedcache";
 import { group, ok, eq, near } from "./harness.mts";
 
 const T = 1_700_000_000_000;
 const MODEL = "test-model";
 const DIMS = 384;
-const fresh = () => openDatabase(":memory:");
+// Experiment 025 moved the cache into its own database, so migration 6 drops
+// this table from the main one. Tests create the cache schema explicitly, using
+// the same exported definition the real cache uses — not a second copy.
+const fresh = () => {
+  const database = openDatabase(":memory:");
+  createEmbeddingSchema(database);
+  return database;
+};
 
 /** A deterministic stand-in for the model, which counts how often it is called. */
 function fakeEmbedder() {
@@ -135,11 +143,13 @@ ok("and says what it expected", (mismatch ?? "").includes("Expected 2 vectors, g
 group("embedcache — survives a restart");
 const path = `${process.env.TMPDIR ?? "/tmp"}/forge-embed-${Math.random().toString(36).slice(2)}.db`;
 const before = openDatabase(path);
+createEmbeddingSchema(before);
 const warm = fakeEmbedder();
 await embedCached(before, texts, MODEL, warm.fn, T);
 before.close();
 
 const after = openDatabase(path);
+createEmbeddingSchema(after); // idempotent — IF NOT EXISTS
 const cold = fakeEmbedder();
 const restarted = await embedCached(after, texts, MODEL, cold.fn, T);
 eq("nothing re-embedded after a restart", restarted.stats.misses, 0);

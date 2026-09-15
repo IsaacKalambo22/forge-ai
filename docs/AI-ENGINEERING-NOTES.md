@@ -2002,9 +2002,11 @@ The same text through the same model always gives the same vector. Measured in
 ForgeAI:
 
 ```text
-cold  271 chunks, 0 cached     196.8 s
-warm  271 chunks, 271 cached     0.071 s     ≈ 2,770x
+cold  284 chunks, 0 cached     66.9 s - 196.8 s   (the spread is machine load)
+warm  284 chunks, 284 cached    0.036 s
 ```
+
+Three to four orders of magnitude, reproduced across runs.
 
 Key it on a **hash of the text**, not a file path or chunk index — a section that moves
 between documents, or shifts down as text is inserted above it, is the same text.
@@ -2020,15 +2022,47 @@ float32 — JSON would be ~8x larger and lossy in the last bits.
 A content-addressed cache is also **portable**: valid in any database, because the key
 describes the content rather than its location.
 
-### Batch size matters more than it looks: a batch is padded to its longest member
+### Batch size matters: a batch is padded to its longest member
 
-ForgeAI embedded every chunk in one call. Bounding memory by batching at 16 also cut
-the cold build from **516.6 s to 196.8 s with more chunks** — because in one giant call,
-every short chunk was padded to the length of the longest passage in the corpus and the
-model did that wasted work for all of them.
+Embedding every chunk in one call means each short chunk is padded to the length of the
+longest text in the corpus, and the model does that wasted work for all of them.
+Batching bounds it. Measured in ForgeAI: peak RSS **~833 MB → 424 MB** at batch 16.
 
-**A memory fix that turns out to be a 2.6x speed fix is a sign the original code was
-doing work nobody asked for.**
+The same argument predicts a speed win. **ForgeAI claimed one and had to withdraw it**
+— see below.
+
+### A measurement taken under uncontrolled conditions is a guess with a decimal point
+
+ForgeAI recorded "batching cut the cold build 2.6x, 516.6 s → 196.8 s". Later runs of
+**the same batched code** came in at 162.0 s, 70.6 s and 66.9 s.
+
+```text
+batched, same code:  66.9 s ... 196.8 s     a 2.9x spread
+claimed speedup from the change:  2.6x
+```
+
+The spread from machine load alone was larger than the effect being claimed. The load
+average on that laptop ranged from 21 to 324 while the editor re-indexed the files
+being edited, and the unbatched baseline was measured once, under unknown conditions,
+and never repeated.
+
+What made it stick was that **the number agreed with a correct mechanism.** The padding
+argument is sound; the timings looked like confirmation; they were noise. A plausible
+explanation makes a bad measurement much harder to doubt.
+
+Rules that follow:
+
+```text
+interleave A/B/A/B        the control for load that drifts during the run
+repeat each side          one sample per arm is not a comparison
+record the conditions     load average, what else was running
+make the config switchable  so both paths can be run back to back, later
+distrust an effect smaller than the spread of its own arm
+```
+
+Two claims from the same experiment survived this and one did not, and the difference
+is instructive: caching (three orders of magnitude, reproduced) and memory (~2x, large
+and mechanism-backed) held; a 2.6x timing claim inside a 2.9x noise band did not.
 
 ### Prove the fast version is not the worse version
 
@@ -2407,7 +2441,8 @@ All 9 blocked claims have fixture-tested evaluators; only evidence is missing (0
 The full gate runs in ~38s; breaking a test on purpose stops it at that gate (022)
 The corpus really contains injection payloads; the renderer neutralised 5 (023)
 The notebook index is 256 chunks and takes 8.6 minutes to build (023)
-Caching embeddings: 196.8s cold → 0.071s warm; batching alone cut cold 2.6x (024)
+Caching embeddings: tens of seconds cold → 36-71ms warm, reproduced (024)
+Batching halved peak RSS 833MB → 424MB; its SPEED effect was withdrawn (024/025)
 Cached vectors are bit-identical to fresh ones, and retrieval is unchanged (024)
 pnpm test 561/561 · pnpm e2e 32/32
 ```

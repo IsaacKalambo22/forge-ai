@@ -60,26 +60,63 @@ COLD: {"chunks":271,"cache_hits":0,  "embedded":271,"ms":196787}
 WARM: {"chunks":271,"cache_hits":271,"embedded":0,  "ms":71}
 ```
 
-| | Before (023) | After, cold | After, warm |
+Repeated later on the same machine under lighter load, and after the corpus grew:
+
+```text
+COLD  284 chunks, 0 cached     70.6 s   /   66.9 s
+WARM  284 chunks, 284 cached    0.036 s
+```
+
+**A warm build is three to four orders of magnitude faster than a cold one.** Every
+pairing measured gives at least ~1,000×, and the cache costs 407 KB for 271 vectors.
+
+This is the claim the experiment supports. The spread in the *cold* column — 66.9 s to
+196.8 s for the same code — is the machine, not the code. See the correction below.
+
+### CORRECTION — a speedup claim this experiment did not earn
+
+**An earlier version of this README claimed batching cut the cold build 2.6×, from
+516.6 s to 196.8 s. That claim is withdrawn.**
+
+Every cold measurement taken, with what was running at the time:
+
+| config | chunks | cold build | RSS |
 | --- | --- | --- | --- |
-| chunks | 256 | 271 | 271 |
-| build | **516.6 s** | **196.8 s** | **0.071 s** |
+| one call with everything (Exp. 023) | 256 | 516.6 s | ~833 MB |
+| batched 16 | 271 | 196.8 s | — |
+| batched 16 | 271 | 162.0 s | 424 MB |
+| batched 16 | 284 | 70.6 s | — |
+| batched 16 | 284 | 66.9 s | — |
 
-**196.8 s → 0.071 s on a warm cache: about 2,770× faster.** The cache costs 407 KB for
-271 vectors.
+**The batched configuration alone spans 66.9 s to 196.8 s — a 2.9× spread, from load
+only.** That is larger than the 2.6× I attributed to batching. The machine's load
+average was observed between 21 and 324 during this work, with the editor re-indexing
+the files being changed; the unbatched 516.6 s figure was taken under unknown load and
+never repeated.
 
-### Observed — batching made the cold path faster, not just smaller
+So two contended samples were compared and the difference credited to the change. The
+measurement cannot distinguish the code from the conditions.
 
-This was not the goal. Batching was meant to bound the ~850 MB peak; the cold build
-also dropped from **516.6 s to 196.8 s — with 15 more chunks.**
+**What survives:**
 
-The reason is the padding rule above: in a single 256-text call, every short chunk was
-padded to the length of the longest passage in the notebook, and the model did that
-wasted work for all of them. Smaller batches mean each text is padded only to the
-longest of its 15 neighbours.
+- **Caching is a real, large win.** 36–71 ms against tens of seconds is far too big a
+  gap for load to explain, and it reproduced across several runs.
+- **Batching roughly halved peak memory** — ~833 MB to 424 MB, one measurement each,
+  and consistent with the padding argument below.
 
-**A memory fix that turns out to be a 2.6× speed fix is a sign the original code was
-doing work nobody asked for.**
+**What does not:** any statement about batching and *speed*, in either direction. It
+may help, may be neutral; this experiment cannot say.
+
+`FORGE_EMBED_BATCH` now selects the batch size (`0` = one call with everything) so the
+two paths can be measured back to back. The interleaved A/B has not been run: the
+machine has not been quiet enough for the result to mean anything.
+
+**The lesson is the one this project keeps relearning.** Experiment 018 recorded that
+the value of an instrument is that it can contradict you. Here the instrument was a
+wall clock on a laptop running an editor, and it agreed with me — which felt like
+confirmation and was noise. *A measurement taken under uncontrolled conditions is a
+guess with a decimal point.* Interleaving A and B is the control, and it costs nothing
+to design in from the start.
 
 ### Observed — the cached vectors are bit-identical to fresh ones
 
@@ -209,7 +246,7 @@ oversight.
 
 ## Questions
 
-- **The first build is still 196.8 seconds.** The cache removes the *repeat* cost, not
+- **The first build still costs tens of seconds** (66.9–196.8 s observed). The cache removes the *repeat* cost, not
   the first one. A fresh clone, or CI, still pays it — which is why the CI workflow
   caches `node_modules` but would now also want the embedding cache, and does not.
 - **Nothing warms the index at startup.** It builds on first request, so the first user
@@ -230,20 +267,21 @@ oversight.
 | Piece | State |
 | --- | --- |
 | Migration 5 + `embedcache.ts` | ✅ Verified, 30 assertions |
-| **Warm build 196.8 s → 0.071 s** | ✅ **Measured** |
-| **Cold build 516.6 s → 196.8 s via batching** | ✅ **Measured, unintended** |
+| **Warm build: tens of seconds → 36–71 ms** | ✅ **Measured, reproduced** |
+| Batching halved peak memory (833 → 424 MB) | ✅ Measured once each side |
+| Batching and cold-build *speed* | ❌ **Withdrawn — see the correction** |
 | Cached vectors bit-identical to fresh | ✅ **Verified against the real model** |
 | Retrieval quality unchanged | ✅ **Verified — recall@3 100%, MRR 0.896** |
 | 503 + `Retry-After` while building | ✅ Verified end-to-end |
 | Cache seeding for test servers | ✅ Verified — 271 vectors copied |
-| First-build cost | ⬜ Unchanged — 196.8 s on a fresh clone |
+| First-build cost | ⬜ Unchanged — tens of seconds on a fresh clone |
 | Warm-up at startup | ⬜ Open |
 
 ## Next Step
 
 **Experiment 025 — Warming the Index Before Anyone Asks.**
 
-024 made the repeat cost nearly free and left the first one untouched: 196.8 seconds,
+024 made the repeat cost nearly free and left the first one untouched: tens of seconds,
 paid by whichever user happens to arrive first after a deploy, and paid in full by CI
 on every run because the workflow caches `node_modules` but not the embedding cache.
 

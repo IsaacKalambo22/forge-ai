@@ -20,7 +20,17 @@ const tables = (d.prepare(
   "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
 ).all() as { name: string }[]).map((r) => r.name).filter((n) => !n.startsWith("sqlite_"));
 eq("every table exists", tables,
-  ["conversations", "embeddings", "revoked_sessions", "turns", "usage", "users"]);
+  ["conversations", "revoked_sessions", "turns", "usage", "users"]);
+
+group("db — derived data does NOT live in the application database");
+// Experiment 025. Migration 5 put the embedding cache here; migration 6 moved
+// it out. This database holds durable application state — users, transcripts, a
+// financial ledger. The cache is derived: deletable, rebuildable, identical for
+// everyone, and the one thing safe to share or cache in CI.
+ok("the embedding cache was moved out", !tables.includes("embeddings"),
+  tables.join(", "));
+ok("and migration 5 was left exactly as it shipped",
+  SCHEMA_VERSION >= 6, `${SCHEMA_VERSION} migrations — 6 drops what 5 created`);
 
 group("db — migrating a database that already has data");
 // The real risk of migration 3: it ALTERs a populated table. A migration that

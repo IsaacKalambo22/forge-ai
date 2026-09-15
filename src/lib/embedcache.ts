@@ -16,6 +16,25 @@ import { EMBEDDING_DIMENSIONS } from "./embeddings";
 // above it, is the same text and must not be re-embedded. Editing one paragraph
 // should cost one embedding, not the whole notebook.
 
+/**
+ * The cache's entire schema, in one place.
+ *
+ * Exported so `embeddingDb()` and the tests create it identically. Experiment
+ * 024 learned this the expensive way: the test harness kept its own copy of a
+ * CREATE TABLE, drifted from the migration, and broke every request. One
+ * definition, used by everything that needs it.
+ */
+export function createEmbeddingSchema(database: DatabaseSync): void {
+  database.exec(`CREATE TABLE IF NOT EXISTS embeddings (
+    hash       TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    dims       INTEGER NOT NULL,
+    vector     BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (hash, model)
+  )`);
+}
+
 export function textHash(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
@@ -170,14 +189,7 @@ export function embeddingDb(): DatabaseSync {
   if (CACHE_PATH !== ":memory:") mkdirSync(dirname(CACHE_PATH), { recursive: true });
   const database = new DatabaseSync(CACHE_PATH);
   if (CACHE_PATH !== ":memory:") database.exec("PRAGMA journal_mode = WAL");
-  database.exec(`CREATE TABLE IF NOT EXISTS embeddings (
-    hash       TEXT NOT NULL,
-    model      TEXT NOT NULL,
-    dims       INTEGER NOT NULL,
-    vector     BLOB NOT NULL,
-    created_at INTEGER NOT NULL,
-    PRIMARY KEY (hash, model)
-  )`);
+  createEmbeddingSchema(database);
 
   cacheDb = database;
   return cacheDb;
