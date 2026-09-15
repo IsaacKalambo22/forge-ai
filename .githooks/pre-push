@@ -3,13 +3,37 @@
 #
 # pre-push rather than pre-commit, deliberately. A commit is a local checkpoint
 # and blocking it punishes work-in-progress; a push is the first moment the work
-# becomes someone else's problem. ~38 seconds is affordable there and is not
-# affordable on every commit.
+# becomes someone else's problem. ~30 seconds is affordable there.
 #
 # Installed by `pnpm hooks` (sets core.hooksPath), so it is version-controlled
 # rather than living untracked in .git/hooks.
 #
 # To bypass in an emergency:  git push --no-verify
+
+# GUI git clients (VS Code, Fork, Tower) run hooks with a MINIMAL PATH that does
+# not include nvm, Homebrew or ~/.npm-global. The first version of this hook
+# blocked every push from the VS Code UI with "pnpm: command not found" — a
+# failure that had nothing to do with the code being pushed, and which looks
+# from the UI like the push itself is broken.
+#
+# So: widen the PATH the way a login shell would.
+PATH="$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+[ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
+export PATH
+
+# FAIL OPEN on missing tooling, CLOSED on a failing gate.
+#
+# These are different things. A failing test means the code is not ready and the
+# push should stop. A missing interpreter means this machine cannot run the
+# check — blocking then would be a hook that breaks pushes for reasons entirely
+# unrelated to the change, which is how hooks get uninstalled. CI is the control
+# that cannot be skipped (Experiment 022); this is the convenience.
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "pre-push: pnpm not found on PATH — skipping the local gate."
+  echo "pre-push: CI will still run it. To check by hand: pnpm check"
+  exit 0
+fi
+
 echo "pre-push: running pnpm check (git push --no-verify to skip)"
 pnpm check || {
   echo ""
