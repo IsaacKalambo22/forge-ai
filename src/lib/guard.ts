@@ -6,6 +6,8 @@ import { consume, evictIdle, newBucket, type Bucket, type Limit } from "./rateli
 import { SESSION_COOKIE, readCookie, verifySession } from "./session";
 import { revocations } from "./revocation";
 import { users, DEV_USER_ID } from "./users";
+import { usage } from "./usage";
+import { dollars, formatCost } from "./pricing";
 
 // Per-caller allowance. Capacity is the burst; refill is the sustained rate.
 // 20 tokens refilling at 1/3 per second ≈ 20 chat calls per minute sustained.
@@ -15,11 +17,27 @@ const PER_CALLER: Limit = { capacity: 20, refillPerSecond: 1 / 3 };
 // bounds one abuser; this bounds the bill when there are many, or one with many
 // addresses. Modelled as a bucket refilling over 24h, so there is no midnight
 // boundary to game and no date arithmetic.
+//
+// Experiment 017 kept this and stopped relying on it as the spending control.
+// Counting requests bounds the RATE of paid work; it does not bound the BILL,
+// because a request is not a fixed amount of money — one agent call is six
+// upstream calls, and a 20-turn conversation resends its whole history.
 const DAILY_PAID_REQUESTS = 200;
 const GLOBAL: Limit = {
   capacity: DAILY_PAID_REQUESTS,
   refillPerSecond: DAILY_PAID_REQUESTS / 86_400,
 };
+
+// The real spending controls, in money, read from the Experiment 017 ledger.
+// Overridable so an operator can set them without editing code.
+function budget(name: string, fallbackUsd: number): number {
+  const raw = process.env[name];
+  const parsed = raw === undefined ? NaN : Number(raw);
+  return dollars(Number.isFinite(parsed) && parsed >= 0 ? parsed : fallbackUsd);
+}
+
+const DAILY_TOTAL_BUDGET = () => budget("FORGE_DAILY_BUDGET_USD", 5);
+const DAILY_USER_BUDGET = () => budget("FORGE_USER_DAILY_BUDGET_USD", 1);
 
 // What each route may cost, in paid upstream requests. The agent is the reason
 // weighting exists: one call can be six.
@@ -169,7 +187,60 @@ export function guard(request: Request, route: RouteName): Response | Identity {
   const limited = rateLimit(request, route);
   if (limited !== null) return limited;
 
+  const broke = checkBudget(auth.userId, route);
+  if (broke !== null) return broke;
+
   return auth;
+}
+
+/**
+ * Experiment 017. Refuses paid work once real spending passes a ceiling.
+ *
+ * AN HONEST LIMITATION, STATED RATHER THAN HIDDEN: this authorizes a request on
+ * spending SO FAR, and the cost of the request being authorized is unknowable
+ * until it finishes. So the budget can always be exceeded by the cost of one
+ * in-flight request (or of several arriving together). It is a ceiling with a
+ * lip, not a hard cap.
+ *
+ * Making it exact would mean reserving an estimated cost before the call and
+ * reconciling after — doable, and it needs `count_tokens` plus a reservation
+ * table. Deferred, and recorded so the guarantee is not overstated.
+ */
+function checkBudget(userId: string, route: RouteName): Response | null {
+  if (COST[route] === 0) return null; // free routes spend nothing
+
+  const spentTotal = usage.spentTotal();
+  if (spentTotal >= DAILY_TOTAL_BUDGET()) {
+    console.error(
+      `Daily budget exhausted: ${formatCost(spentTotal)} of ${formatCost(DAILY_TOTAL_BUDGET())}`,
+    );
+    return Response.json(
+      { error: "Daily budget exhausted" },
+      { status: 429, headers: { "Retry-After": "3600" } },
+    );
+  }
+
+  const spentByUser = usage.spentByUser(userId);
+  if (spentByUser >= DAILY_USER_BUDGET()) {
+    return Response.json(
+      { error: "Your daily budget is exhausted" },
+      { status: 429, headers: { "Retry-After": "3600" } },
+    );
+  }
+
+  return null;
+}
+
+/** For the metrics endpoint — what is left, in nanodollars. */
+export function budgetStatus() {
+  const total = DAILY_TOTAL_BUDGET();
+  const spent = usage.spentTotal();
+  return {
+    daily_budget: formatCost(total),
+    spent_today: formatCost(spent),
+    remaining: formatCost(Math.max(0, total - spent)),
+    per_user_budget: formatCost(DAILY_USER_BUDGET()),
+  };
 }
 
 /**

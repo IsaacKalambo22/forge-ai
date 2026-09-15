@@ -1563,7 +1563,116 @@ it cannot be logged into.
 
 ---
 
-# 37. The ForgeAI Learning Path
+# 37. Cost and Token Accounting
+
+Built in Experiment 017.
+
+### The rates (Anthropic first-party, verified 2026-09-15)
+
+| Model | $/MTok in | $/MTok out |
+|---|---|---|
+| Claude Opus 5 | $5.00 | $25.00 |
+| Claude Sonnet 5 | $2.00 | $10.00 |
+| Claude Haiku 4.5 | $1.00 | $5.00 |
+
+Cache read **0.1×** input · cache write **1.25×** (5-min TTL) / **2×** (1-hour TTL).
+
+**Output is 5× input.** Most cost-cutting instinct goes to shortening prompts; the
+lever with five times the leverage is on the other side. Trim the answer, cap
+`max_tokens`, ask for terseness.
+
+### Caching has a break-even, and one request is below it
+
+```text
+1 request   write 1.25x        vs  1x uncached   → caching is MORE expensive
+2 requests  1.25x + 0.1x = 1.35x  vs  2x         → caching wins
+1-hour TTL  2x + 0.2x = 2.2x      vs  3x         → needs 3 requests
+```
+
+**Caching a prefix you use once is strictly worse than not caching it.** Verify hits
+with `usage.cache_read_input_tokens` — if it is zero across repeated requests,
+something in the prefix is changing (a timestamp, a uuid, unsorted JSON keys, a
+varying tool list).
+
+### Money is never a float
+
+```text
+0.1 + 0.2 === 0.30000000000000004
+```
+
+Not paranoia about one request — about the **sum**. A million floating-point fractions
+of a cent produce an error that is real money belonging to nobody, reconciling with
+nothing. ForgeAI demonstrated the drift directly: a thousand identical charges summed
+as floats missed the exact total by 1.42e-14 dollars.
+
+**Choose the unit by the SMALLEST rate you will ever multiply by.** This is the half
+of "use integers for money" that actually bites, and it is a property of the price
+list, not of the currency:
+
+```text
+microdollars   $0.50/MTok = 0.5 microdollars/token   ← a fraction, in the units
+                                                       chosen to avoid fractions
+nanodollars    $X/MTok    = X * 1000 nano/token      ← always a whole number
+```
+
+Better still, make it structural: a constructor that **throws** when a price is not a
+whole number of the chosen unit catches the next price list, not just today's.
+
+### A cost you cannot compute must never be zero
+
+```text
+unknown model → THROW
+unknown model → cost 0    ← spending continues, the budget never notices,
+                             and the logs agree everything is fine
+```
+
+Same rule for an unrecognised token field in the response: if the provider adds a
+billable category, silently ignoring it makes every invoice exceed every total you
+recorded. Detect it and log that the recorded cost is a **lower bound**.
+
+### Counting requests is not a spending control
+
+```text
+one agent call        = up to N upstream calls
+turn 1                = a short prompt
+turn 20               = the whole history, resent and re-billed
+a cache hit           = a tenth of the input price
+```
+
+200 requests could be forty cents or forty dollars. Cap the **bill**, from a ledger.
+Keep the request limiter too — it bounds the *rate* of paid work, a different job, and
+it still works when the ledger is empty. Two controls, two failure modes.
+
+### A pre-authorisation cannot be exact
+
+A budget check runs **before** the request; the cost is known **after**. So the budget
+can always be exceeded by the cost of one in-flight request, and concurrent requests
+all read the same under-budget total. It is a ceiling with a lip.
+
+Making it exact needs `count_tokens` to price the request up front, a reservation
+written before the call, and reconciliation after. **State the limitation in the
+function rather than letting the name imply a guarantee it does not have.**
+
+### Ledger design
+
+```text
+request_id UNIQUE     a retry cannot double-bill — a property of the schema,
+                      not of whoever remembers to check first
+request_id = the 014 correlation id — a ledger row and a log line are one request
+ON DELETE SET NULL    deleting a conversation must not delete the record that it
+                      cost money. The spend happened.
+free routes exempt    a spending limit has no business refusing work that spends
+                      nothing (local embeddings, cached reads)
+```
+
+### What accounting cannot tell you
+
+These totals are what the application *believes* it spent. Until they are compared
+with an actual invoice, they are arithmetic over self-reported numbers.
+
+---
+
+# 38. The ForgeAI Learning Path
 
 The planned progression is:
 
@@ -1603,7 +1712,7 @@ What did I learn?
 
 ---
 
-# 38. My Engineering Philosophy
+# 39. My Engineering Philosophy
 
 ForgeAI is not supposed to become another tutorial project.
 
@@ -1629,7 +1738,7 @@ The goal is:
 
 ---
 
-# 39. Personal Career Direction
+# 40. Personal Career Direction
 
 My goal is to grow beyond simply implementing assigned software projects.
 
@@ -1675,7 +1784,7 @@ Areas I want to develop deeply:
 
 ---
 
-# 40. Rule for Learning New Technologies
+# 41. Rule for Learning New Technologies
 
 When encountering a new technical term, ask:
 
@@ -1713,12 +1822,12 @@ Understand the trade-offs.
 
 ---
 
-# 41. Current ForgeAI Status
+# 42. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 016.**
+**Last updated: 2026-09-15, after Experiment 017.**
 
-Experiments 001–016 are built, documented and tested. `pnpm test` runs 364 assertions
-across 18 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
+Experiments 001–017 are built, documented and tested. `pnpm test` runs 419 assertions
+across 20 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -1743,9 +1852,9 @@ src/app/
   api/login     session issue / revoke       (012)
   api/metrics   latency percentiles          (014)
 
-src/lib/        28 modules — see README for the trust annotations
-tests/          364 assertions, no framework
-.data/forge.db  SQLite — users, transcripts, revoked sessions   (015, 016)
+src/lib/        30 modules — see README for the trust annotations
+tests/          419 assertions, no framework
+.data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
 
@@ -1761,7 +1870,7 @@ model call is **built and type-checked but not observed**. See section 41.
 
 ---
 
-# 42. Current Architecture
+# 43. Current Architecture
 
 ```text
 Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user controls this
@@ -1788,7 +1897,7 @@ limit and the bill can live.
 
 ---
 
-# 43. What Is Verified, and What Is Not
+# 44. What Is Verified, and What Is Not
 
 This distinction matters more than any single lesson here. Three categories, per the
 operating rule — never write "working" because the code looks correct.
@@ -1813,7 +1922,9 @@ A conversation survives the server process being killed (015)
 A stranger asking for your conversation gets the same 404 as for a fake id (016)
 A denied request leaves the target transcript unchanged (016)
 Login reveals nothing about which usernames exist, in message or timing (016)
-pnpm test 364/364
+A budget in dollars refuses paid work and still allows free routes (017)
+Integer nanodollars sum exactly where floats drift by 1.4e-14 (017)
+pnpm test 419/419
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -1828,6 +1939,8 @@ A 4xx is the client being wrong, not the server failing
 A signature proves authenticity, never that a token is still wanted
 Unguessable is not owned: authentication is not authorization
 A password needs a SLOW hash; a token needs a fast one. Opposite problems.
+Money is an integer, in a unit smaller than the smallest rate you multiply by
+Output tokens cost 5x input; a cache write only pays off on the second read
 Anything an attacker can measure is an output — timing and error choice included
 ```
 
@@ -1841,7 +1954,9 @@ Whether the model conforms to the analysis schema       (005)
 Whether the tool loop ever executes                     (006)
 Whether the agent loop ever executes                    (009)
 Generation quality on retrieved passages                (008)
-Token counts / cost per request — there has never been a usage object (014)
+A ledger row written from a LIVE usage object — the arithmetic, schema,
+aggregation and enforcement are all verified; only the join to a real
+response is not (017)
 ```
 
 The third list is not a failure. It is an accurate boundary, and drawing it is the

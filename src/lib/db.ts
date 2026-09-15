@@ -92,6 +92,38 @@ const MIGRATIONS: string[] = [
 
   CREATE INDEX conversations_by_owner ON conversations (owner_id);
   `,
+
+  // 4 — the usage ledger.
+  //
+  // Experiment 011 caps spending by counting REQUESTS, which is a proxy: one
+  // request can be six upstream calls, and a long conversation costs many times
+  // a short one. 014 wanted token counts and had no `usage` object to record.
+  // 015 built a durable store and put no billing facts in it.
+  //
+  // `cost_nanodollars` is an INTEGER, and that is the point — see pricing.ts.
+  // Money stored as a float reconciles with nothing once it is summed.
+  //
+  // `request_id` is the correlation id from 014, so a row here and a log line
+  // there are the same request. UNIQUE, so a retry cannot double-bill.
+  `
+  CREATE TABLE usage (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id        TEXT NOT NULL UNIQUE,
+    user_id           TEXT REFERENCES users(id),
+    conversation_id   TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+    route             TEXT NOT NULL,
+    model             TEXT NOT NULL,
+    input_tokens      INTEGER NOT NULL CHECK (input_tokens >= 0),
+    output_tokens     INTEGER NOT NULL CHECK (output_tokens >= 0),
+    cache_read_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_tokens >= 0),
+    cache_write_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cache_write_tokens >= 0),
+    cost_nanodollars  INTEGER NOT NULL CHECK (cost_nanodollars >= 0),
+    created_at        INTEGER NOT NULL
+  );
+
+  CREATE INDEX usage_by_user_time ON usage (user_id, created_at);
+  CREATE INDEX usage_by_time ON usage (created_at);
+  `,
 ];
 
 /**

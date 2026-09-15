@@ -4,6 +4,9 @@ import { MAX_MESSAGE_LENGTH, type StreamEvent } from "@/lib/messages";
 import { isPersonaId } from "@/lib/personas";
 import { observe, streamFailure } from "@/lib/observe";
 import { transcripts, TranscriptError } from "@/lib/transcripts";
+import { usage } from "@/lib/usage";
+import { formatCost } from "@/lib/pricing";
+import { log } from "@/lib/log";
 
 export async function POST(request: Request) {
   return observe("chat", (requestId) => handle(request, requestId));
@@ -110,10 +113,43 @@ async function handle(request: Request, requestId: string) {
       send({ type: "conversation", id: conversation.id });
 
       let answer = "";
+      // One HTTP request can be several upstream calls — that is exactly why
+      // counting requests was never a spending control (Experiment 011).
+      let upstreamCalls = 0;
 
       try {
         for await (const event of runToolLoop(history, activePersona)) {
           if (event.type === "text") answer += event.text;
+
+          // Experiment 017. The `done` event is the only place a real `usage`
+          // object has ever existed in this project — record it before it is
+          // forwarded and gone. A tool loop can emit several, one per upstream
+          // call; the request id is suffixed so each is its own ledger row
+          // rather than silently deduplicated by the UNIQUE constraint.
+          if (event.type === "done") {
+            try {
+              const cost = usage.record({
+                requestId: `${requestId}-${++upstreamCalls}`,
+                userId: auth.userId,
+                conversationId: conversation.id,
+                route: "chat",
+                model: event.model,
+                usage: event.usage,
+              });
+              log({ level: "info", msg: "usage", request_id: requestId, route: "chat",
+                model: event.model, upstream_call: upstreamCalls,
+                input_tokens: event.usage.input_tokens,
+                output_tokens: event.usage.output_tokens,
+                cost: formatCost(cost) });
+            } catch (error) {
+              // Never let an accounting failure break a reply the user is
+              // already reading. Loud in the log, invisible in the stream.
+              log({ level: "error", msg: "failed to record usage",
+                request_id: requestId, route: "chat",
+                error: error instanceof Error ? error.message : String(error) });
+            }
+          }
+
           send(event);
         }
       } catch (error) {

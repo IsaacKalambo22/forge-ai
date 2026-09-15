@@ -1,5 +1,6 @@
-import { guard } from "@/lib/guard";
+import { guard, budgetStatus } from "@/lib/guard";
 import { currentSnapshot } from "@/lib/telemetry";
+import { usage } from "@/lib/usage";
 import { observe } from "@/lib/observe";
 
 /**
@@ -19,7 +20,13 @@ export async function GET(request: Request) {
     const auth = guard(request, "metrics");
     if (auth instanceof Response) return auth;
 
-    return Response.json(currentSnapshot(), {
+    // Experiment 017: latency and status alone do not say what the service
+    // COST to run. Spending is the other half of knowing how it is behaving.
+    return Response.json({
+      ...currentSnapshot(),
+      budget: budgetStatus(),
+      spend_24h: usage.byRoute(),
+    }, {
       // Never cache a measurement; a cached one is a lie with a timestamp.
       headers: { "Cache-Control": "no-store" },
     });

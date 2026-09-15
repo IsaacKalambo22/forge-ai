@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–016 complete.** `pnpm test` → 364/364. `pnpm lint` and
+**Experiments 001–017 complete.** `pnpm test` → 419/419. `pnpm lint` and
 `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 017 — Cost and Token Accounting.**
+Currently building: **Experiment 018 — Cost-Aware Context Management.**
 
 ### Completed
 
@@ -26,18 +26,19 @@ Currently building: **Experiment 017 — Cost and Token Accounting.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 364 assertions, no framework
+- [x] Test suite — 419 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
 - [x] Identity & authorization — real users, scrypt passwords, owned conversations
+- [x] Cost accounting — integer-nanodollar ledger, budgets enforced in dollars
 
 ### Currently building
 
-- [ ] **017 — Cost and Token Accounting.** Three experiments have deferred the same
-      item: 014 wanted per-request token counts, 011 caps spending by counting
-      *requests* (a proxy — one request can be six upstream calls), and 015 built a
-      durable store and put no billing facts in it.
+- [ ] **018 — Cost-Aware Context Management.** 003 measured that history grows
+      quadratically in tokens billed; the only response so far is `MAX_TURNS = 20`,
+      a cliff rather than a strategy. Now that cost is a readable number, prompt
+      caching / trimming / summarising become comparable rather than a matter of taste.
 
 ### Blocked — no Anthropic API credential
 
@@ -53,9 +54,10 @@ separated from generation.
 
 ### Deferred
 
+- [ ] Usage recording on ask / agent / analyze — only `/api/chat` records today
+- [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
-- [ ] Token counts / cost per request — blocked on the credential, not on design
 - [ ] CSRF token — slightly more pressing now there is a state-changing `PUT`
 - [ ] Per-user rate limiting — the limiter runs before identity is known
 - [ ] Moving the rate limiter and telemetry into the store — deliberately deferred
@@ -205,6 +207,32 @@ Outside production the detail is still returned as `detail_dev_only`, because th
 curl-driven debugging loop depends on it; `NODE_ENV` is set by the framework, not by
 the request.
 
+## Cost
+
+Spending is capped in **dollars**, read from a durable ledger — not by counting
+requests, which Experiment 011 used as a proxy and 017 replaced. Defaults are $5/day
+total and $1/day per user, deliberately small:
+
+```bash
+FORGE_DAILY_BUDGET_USD=50 FORGE_USER_DAILY_BUDGET_USD=20 pnpm dev
+```
+
+`GET /api/metrics` reports it alongside latency:
+
+```json
+"budget": { "daily_budget": "$5.0000", "spent_today": "$1.1000",
+            "remaining": "$3.9000", "per_user_budget": "$1.0000" }
+```
+
+Costs are integer **nanodollars**, never floats — `$X/MTok` is exactly `X × 1000`
+nanodollars per token, so every rate is a whole number and nothing rounds. Routes
+costing nothing (`/api/search` runs a local model) are exempt, so a spending limit
+cannot refuse work that spends no money.
+
+Rates are Anthropic first-party, verified 2026-09-15: `claude-opus-5` at $5.00/MTok
+in, $25.00/MTok out — **output is 5× input** — with cache reads at 0.1× and writes at
+1.25×. See [Experiment 017](experiments/017-cost-accounting/README.md).
+
 ## Observability
 
 ```bash
@@ -306,6 +334,8 @@ src/
     ├── transcripts.ts        # "server-only": server-owned conversations
     ├── revocation.ts         # "server-only": session denylist (hashes, not tokens)
     ├── users.ts              # "server-only": scrypt passwords, timing-equalised auth
+    ├── pricing.ts            # token rates + integer-nanodollar cost — no imports
+    ├── usage.ts              # "server-only": the spend ledger
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
     ├── tools.ts              # "server-only": tool definitions + execution
@@ -314,8 +344,8 @@ src/
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
 scripts/                      # `pnpm eval` — the retrieval benchmark
-tests/                        # `pnpm test` — 364 assertions, no framework
-.data/forge.db                # SQLite — users, transcripts, revoked sessions
+tests/                        # `pnpm test` — 419 assertions, no framework
+.data/forge.db                # SQLite — users, transcripts, sessions, usage ledger
 ```
 
 ## Architecture
@@ -379,6 +409,7 @@ is the deliverable; the code is the apparatus.
 | 014 | [Observability](experiments/014-observability/README.md) | 🟢 **Verified end-to-end** — correlation ids, p50 6ms / p95 1579ms; **Exp. 001 provider leak closed** |
 | 015 | [Persistence](experiments/015-persistence/README.md) | 🟢 **Verified end-to-end** — SQLite; **Exp. 003 forgery and Exp. 012 revocation both closed** |
 | 016 | [Identity & Authorization](experiments/016-identity-and-authz/README.md) | 🟢 **Verified end-to-end** — cross-user access returns 404, byte-identical to nonexistent |
+| 017 | [Cost & Token Accounting](experiments/017-cost-accounting/README.md) | 🟢 **Enforcement verified** — budgets in dollars, integer-nanodollar ledger; live `usage` still blocked |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
