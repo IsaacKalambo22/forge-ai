@@ -4,8 +4,10 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { chunkMarkdown, chunkText, type Chunk } from "./chunk";
-import { embed } from "./embeddings";
+import { EMBEDDING_MODEL, embed } from "./embeddings";
+import { embedCache } from "./embedcache";
 import { topK, type Scored } from "./vector";
+import { log } from "./log";
 
 export type Source = Chunk & { file: string };
 
@@ -58,11 +60,59 @@ let indexPromise: Promise<{ item: Source; vector: number[] }[]> | null = null;
 
 function getIndex() {
   indexPromise ??= (async () => {
+    const started = Date.now();
     const sources = loadSources();
-    const vectors = await embed(sources.map(chunkText));
+
+    // Experiment 024. Embedding is deterministic, so a chunk whose text has not
+    // changed does not need re-embedding. Before this, every restart re-embedded
+    // the whole notebook — 256 chunks, 516.6 seconds, measured in 023.
+    const { vectors, stats } = await embedCache.get(
+      sources.map(chunkText),
+      EMBEDDING_MODEL,
+      embed,
+    );
+
+    // The build used to happen in silence while requests simply waited. It is
+    // the slowest thing this process does; it should say so.
+    log({
+      level: "info",
+      msg: "notebook index ready",
+      chunks: sources.length,
+      cache_hits: stats.hits,
+      embedded: stats.misses,
+      ms: Date.now() - started,
+    });
+
+    indexBuilt = true;
     return sources.map((item, i) => ({ item, vector: vectors[i] }));
   })();
   return indexPromise;
+}
+
+let indexBuilt = false;
+
+/** True once the index is built. Lets a route answer honestly while it warms. */
+export function indexReady(): boolean {
+  return indexBuilt;
+}
+
+/**
+ * Starts the index build without waiting for it.
+ *
+ * Experiment 023 measured a cold build at 516.6 seconds, during which every
+ * request to /api/ask simply WAITED — the promise was cached, so the second
+ * caller queued behind the first with no indication that anything was
+ * happening. A silent eight-minute wait is indistinguishable from a hang.
+ *
+ * A route can now kick the build off and return 503 + Retry-After instead,
+ * which is the truthful answer: not broken, not ready.
+ */
+export function warmIndex(): void {
+  void getIndex().catch(() => {
+    // Swallowed deliberately: this is fire-and-forget, and an unhandled
+    // rejection here would take down the process. The awaiting caller in
+    // retrieve() still sees the real error.
+  });
 }
 
 export async function retrieve(query: string, k = 4): Promise<Scored<Source>[]> {

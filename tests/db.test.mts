@@ -20,7 +20,7 @@ const tables = (d.prepare(
   "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
 ).all() as { name: string }[]).map((r) => r.name).filter((n) => !n.startsWith("sqlite_"));
 eq("every table exists", tables,
-  ["conversations", "revoked_sessions", "turns", "usage", "users"]);
+  ["conversations", "embeddings", "revoked_sessions", "turns", "usage", "users"]);
 
 group("db — migrating a database that already has data");
 // The real risk of migration 3: it ALTERs a populated table. A migration that

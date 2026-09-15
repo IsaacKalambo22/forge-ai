@@ -85,6 +85,41 @@ try {
   eq("logout succeeds", (await carol.fetch("/api/login", { method: "DELETE" })).status, 200);
   eq("the same cookie is now refused", (await carol.json("/api/search", { query: "x" })).status, 401);
 
+  group("e2e — the notebook index reports readiness instead of waiting (Experiment 024)");
+  // Before 024 a cold /api/ask simply blocked — measured at 196.8s with an empty
+  // cache, and 516.6s before batching. A silent multi-minute wait is
+  // indistinguishable from a hang.
+  ok("the test server was seeded with cached embeddings", server.seededEmbeddings > 0,
+    `${server.seededEmbeddings} vectors copied from the dev cache`);
+
+  const firstAsk = await alice.json("/api/ask", { question: "what is prompt injection?" });
+  // The first caller triggers the build and is told so, rather than queuing.
+  ok("the first request is answered, not hung",
+    firstAsk.status === 503 || firstAsk.status === 200, `HTTP ${firstAsk.status}`);
+  if (firstAsk.status === 503) {
+    eq("with an honest error", (firstAsk.body as { error: string }).error.includes("still building"), true);
+    const retryAfter = (await alice.fetch("/api/ask", {
+      method: "POST", body: JSON.stringify({ question: "x" }),
+    })).headers.get("retry-after");
+    ok("and a Retry-After header", retryAfter !== null, retryAfter ?? "(none)");
+  }
+
+  // Wait for the build, then confirm the route actually works.
+  let ready = false;
+  for (let i = 0; i < 60 && !ready; i++) {
+    const probe = await alice.stream("/api/ask", { question: "what is prompt injection?" });
+    if (probe.status === 200) {
+      ready = true;
+      const sources = probe.events.find((e) => e.type === "sources");
+      ok("once ready, retrieval runs and sources are emitted", sources !== undefined);
+      ok("the passages come from the notebook",
+        ((sources as { sources?: { file: string }[] } | undefined)?.sources ?? []).length > 0);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  ok("the index became ready within 60s of a seeded cache", ready);
+
   group("e2e — the server logged structured JSON throughout (Experiment 014)");
   const lines = server.log().split("\n").filter((l) => l.startsWith('{"level"'));
   ok("structured log lines were written", lines.length > 0, `${lines.length} lines`);

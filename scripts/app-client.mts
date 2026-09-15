@@ -7,7 +7,8 @@
 // This is also what `pnpm verify` needs for the four claims whose evidence comes
 // from the app rather than from a direct API call.
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -31,6 +32,8 @@ async function somethingIsListening(port: number): Promise<boolean> {
 export type Server = {
   url: string;
   secret: string;
+  /** Cached embeddings copied in from the dev database, if any. */
+  seededEmbeddings: number;
   stop(): void;
   /** Everything the server has written to stdout/stderr. */
   log(): string;
@@ -43,6 +46,58 @@ export type Server = {
  * into `.data/forge.db` — an end-to-end suite that pollutes the development
  * database is one nobody runs twice.
  */
+/**
+ * Copies cached embeddings from the development database into the server's.
+ *
+ * Experiment 024. The test server runs on a throwaway database, which means an
+ * empty embedding cache, which since 024 means /api/ask answers 503 while the
+ * index builds — around three minutes. That would make the notebook-backed
+ * claims ungatherable.
+ *
+ * Seeding works because the cache is CONTENT-ADDRESSED: a vector is keyed by a
+ * hash of its text and the model that produced it, so it is valid in any
+ * database. That portability is a property of the design, not a test
+ * convenience.
+ *
+ * MUST run AFTER the server has booted and migrated. The first version ran
+ * before, creating the `embeddings` table itself — and migration 5 is a plain
+ * `CREATE TABLE`, so it then failed against the existing table, the whole
+ * migration chain aborted, and every request returned 500. Letting the server
+ * own its schema removes the duplicate definition entirely.
+ */
+function seedEmbeddingCache(target: string): number {
+  const source = process.env.FORGE_DB_PATH ?? ".data/forge.db";
+  if (!existsSync(source) || !existsSync(target)) return 0;
+
+  const from = new DatabaseSync(source);
+  let rows: { hash: string; model: string; dims: number; vector: Uint8Array; created_at: number }[];
+  try {
+    rows = from.prepare("SELECT hash, model, dims, vector, created_at FROM embeddings").all() as
+      typeof rows;
+  } catch {
+    return 0; // an older database without the table
+  } finally {
+    from.close();
+  }
+  if (rows.length === 0) return 0;
+
+  const to = new DatabaseSync(target);
+  try {
+    const insert = to.prepare(
+      "INSERT INTO embeddings (hash, model, dims, vector, created_at) VALUES (?,?,?,?,?) " +
+        "ON CONFLICT(hash, model) DO NOTHING",
+    );
+    to.exec("BEGIN");
+    for (const r of rows) insert.run(r.hash, r.model, r.dims, r.vector, r.created_at);
+    to.exec("COMMIT");
+  } catch {
+    return 0; // the server has not migrated yet — not fatal, just a slow run
+  } finally {
+    to.close();
+  }
+  return rows.length;
+}
+
 export async function startServer(port = randomPort()): Promise<Server> {
   const dir = mkdtempSync(join(tmpdir(), "forge-e2e-"));
 
@@ -99,9 +154,13 @@ export async function startServer(port = randomPort()): Promise<Server> {
     }
   }
 
+  // The server has booted and migrated, so its schema exists and is its own.
+  const seeded = seedEmbeddingCache(join(dir, "e2e.db"));
+
   return {
     url,
     secret,
+    seededEmbeddings: seeded,
     /**
      * Kills the whole process GROUP, not just the child.
      *

@@ -2,6 +2,7 @@ import { guard } from "@/lib/guard";
 import { runAgent } from "@/lib/ai";
 import type { StreamEvent } from "@/lib/messages";
 import { observe, streamFailure } from "@/lib/observe";
+import { indexReady, warmIndex } from "@/lib/knowledge";
 
 const MAX_QUESTION_LENGTH = 500;
 
@@ -32,6 +33,20 @@ async function handle(request: Request, requestId: string) {
     return Response.json(
       { error: `Question too long (max ${MAX_QUESTION_LENGTH} characters)` },
       { status: 400 },
+    );
+  }
+
+  // Experiment 024. The notebook index takes minutes to build from cold, and
+  // before this the request simply waited in silence — indistinguishable from a
+  // hang. Answer honestly instead, while the build proceeds in the background.
+  //
+  // This must happen BEFORE the first byte: past that line the status is
+  // committed and a 503 is no longer expressible (Experiment 004).
+  if (!indexReady()) {
+    warmIndex();
+    return Response.json(
+      { error: "The notebook index is still building. Try again shortly." },
+      { status: 503, headers: { "Retry-After": "30" } },
     );
   }
 

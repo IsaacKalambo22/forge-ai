@@ -124,6 +124,31 @@ const MIGRATIONS: string[] = [
   CREATE INDEX usage_by_user_time ON usage (user_id, created_at);
   CREATE INDEX usage_by_time ON usage (created_at);
   `,
+
+  // 5 — the embedding cache.
+  //
+  // Experiment 023 measured the notebook index at 256 chunks and 516.6 seconds
+  // to build, ~850 MB, REBUILT FROM SCRATCH ON EVERY RESTART. It was 65 chunks
+  // in Experiment 008; every README written makes it worse.
+  //
+  // Keyed by a hash of the TEXT, not by file or position. A chunk that moves to
+  // another file, or shifts down a document as text is inserted above it, is
+  // still the same chunk and must not be re-embedded. Editing one section of
+  // one experiment should cost one embedding, not 256.
+  //
+  // `model` is part of the key because vectors from different models are not
+  // comparable — mixing them silently produces meaningless similarities rather
+  // than an error.
+  `
+  CREATE TABLE embeddings (
+    hash       TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    dims       INTEGER NOT NULL,
+    vector     BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (hash, model)
+  );
+  `,
 ];
 
 /**
