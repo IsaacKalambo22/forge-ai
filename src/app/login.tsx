@@ -3,12 +3,16 @@
 import { useState } from "react";
 
 /**
- * The password is typed here and POSTed once. It is never stored in the browser —
- * what comes back is an HttpOnly cookie the browser sends automatically and
- * this code cannot read. That is the whole point: the browser holds a signed
- * claim, not the secret (Experiments 001, 002, 011).
+ * Credentials are typed here and POSTed once. They are never stored in the
+ * browser — what comes back is an HttpOnly cookie the browser sends
+ * automatically and this code cannot read. That is the whole point: the browser
+ * holds a signed claim, not the secret (Experiments 001, 002, 011).
+ *
+ * Experiment 016: a username as well as a password. Before that this form asked
+ * for one shared password and the resulting session could not say who you were.
  */
 export default function Login() {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,11 +27,12 @@ export default function Login() {
     const response = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     });
 
     if (response.ok) {
       setPassword("");
+      setUsername("");
       // Reload so the server re-renders with the session cookie present.
       window.location.reload();
       return;
@@ -40,14 +45,25 @@ export default function Login() {
 
   return (
     <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-3">
-      <label htmlFor="password" className="text-sm text-zinc-500">
-        This instance is password protected.
+      <label htmlFor="username" className="text-sm text-zinc-500">
+        Sign in to Forge AI.
       </label>
+      <input
+        id="username"
+        name="username"
+        autoComplete="username"
+        placeholder="Username"
+        value={username}
+        onChange={(event) => setUsername(event.target.value)}
+        className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+      />
       <div className="flex gap-2">
         <input
           id="password"
+          name="password"
           type="password"
           autoComplete="current-password"
+          placeholder="Password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           className="flex-1 rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"

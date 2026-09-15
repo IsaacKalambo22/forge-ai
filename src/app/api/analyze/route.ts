@@ -11,8 +11,8 @@ export async function POST(request: Request) {
 // as /api/chat — this route used to accept whatever history the client sent,
 // which meant it analysed a conversation that need not have happened.
 async function handle(request: Request, requestId: string) {
-  const denied = guard(request, "analyze");
-  if (denied !== null) return denied;
+  const auth = guard(request, "analyze");
+  if (auth instanceof Response) return auth;
 
   let body: unknown;
   try {
@@ -27,7 +27,9 @@ async function handle(request: Request, requestId: string) {
     return Response.json({ error: "conversation_id must be a string" }, { status: 400 });
   }
 
-  if (transcripts.get(conversationId) === null) {
+  // Same authorized lookup as /api/chat — analysing someone else's conversation
+  // would be reading it, just with an extra step.
+  if (transcripts.readable(conversationId, auth.userId) === null) {
     return Response.json({ error: "Unknown conversation" }, { status: 404 });
   }
 

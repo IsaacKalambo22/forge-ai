@@ -5,12 +5,14 @@ import { group, ok } from "./harness.mts";
 
 const SECRET = "a-signing-key-for-tests";
 const T = 1_700_000_000_000;
+const USER = "11111111-2222-3333-4444-555555555555";
 
 group("session — issue and verify");
-const token = issueSession(SECRET, T);
+const token = issueSession(SECRET, USER, T);
 let r = verifySession(token, SECRET, T);
 ok("a freshly issued token verifies", r.valid);
 ok("payload carries iat and exp", r.valid && r.payload.iat === T && r.payload.exp > T);
+ok("payload carries the subject (Experiment 016)", r.valid && r.payload.sub === USER);
 ok("token has exactly two parts", token.split(".").length === 2);
 ok("token is base64url only (cookie-safe)", /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token));
 
@@ -18,7 +20,7 @@ group("session — expiry");
 ok("valid one ms before expiry", verifySession(token, SECRET, T + 12 * 60 * 60 * 1000 - 1).valid);
 r = verifySession(token, SECRET, T + 12 * 60 * 60 * 1000);
 ok("expired exactly at exp", !r.valid && r.reason === "expired");
-r = verifySession(issueSession(SECRET, T, 1000), SECRET, T + 5000);
+r = verifySession(issueSession(SECRET, USER, T, 1000), SECRET, T + 5000);
 ok("a short-lived token expires", !r.valid && r.reason === "expired");
 
 group("session — forgery");

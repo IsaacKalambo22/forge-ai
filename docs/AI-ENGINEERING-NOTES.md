@@ -1452,7 +1452,118 @@ Deferred, with the reason recorded, is a decision. Deferred silently is a bug.
 
 ---
 
-# 36. The ForgeAI Learning Path
+# 36. Identity and Authorization
+
+Built in Experiment 016.
+
+### Two different questions
+
+```text
+Authentication   who are you?
+Authorization    may you touch THIS?
+```
+
+**Having the first is not having the second.** ForgeAI shipped Experiment 015 with
+durable conversations and no answer to the second question — it could tell a session
+was valid and could not tell whose conversation it was looking at. That gap had no
+consequences while conversations died with the browser tab, and real ones the moment
+they persisted.
+
+The shape of the fix: `guard()` used to return `Response | null` — *allowed or
+denied*, with nobody allowed. It now returns an identity, because **a route that
+cannot name the caller cannot check whether a resource is theirs.**
+
+### Password hashing is the OPPOSITE problem to token hashing
+
+This is the subtlety worth remembering, because both are "hashing".
+
+```text
+session token   256+ bits of MAC output.  No dictionary exists to attack it.
+                → SHA-256. Fast is fine.          (revocation.ts, Exp. 015)
+
+password        short, human-chosen, enumerable space.
+                → scrypt, deliberately slow, memory-hard.   (users.ts, Exp. 016)
+```
+
+Against a leaked table, **SHA-256's speed IS the vulnerability** — billions of guesses
+per second on a GPU. Slowness is the feature. Measured in ForgeAI: 66ms per
+verification.
+
+Three things stored alongside the digest:
+
+```text
+salt        random per password. Without it, two users with the same password
+            share a hash and one precomputed table attacks every row at once.
+parameters  scrypt$16384$8$1$… — without them, raising the cost later makes every
+            existing password unverifiable: the digest is the output of a
+            function you can no longer name.
+scheme      so a future migration to a different algorithm can recognise old rows.
+```
+
+### Timing oracles
+
+If an unknown username returns in microseconds and a wrong password takes 80ms, the
+**response time** tells an attacker which usernames exist — and enumerating accounts
+is the first step of attacking them.
+
+The fix is to make the unknown-username path do the same work: verify against a dummy
+hash and discard the result. Measured: `unknown 56ms vs wrong-password 54ms`.
+
+Same principle as the constant-time comparison in Experiment 012. **Anything an
+attacker can measure is an output**, including how long you took and which error you
+chose.
+
+### 404, not 403
+
+```text
+403  "this exists, but not for you"   ← confirms the id is REAL
+404  "no"                              ← confirms nothing
+```
+
+For an unguessable id, that confirmation is the one fact an attacker holding a leaked
+id could not otherwise derive. Verified in ForgeAI: a stranger asking for a real
+conversation and asking for an id that never existed get **byte-identical** responses.
+
+### Check authorization BEFORE the write
+
+A denied request must not be able to modify what it is not allowed to read. ForgeAI
+verified this directly: after three rejected attempts by another user, the target
+transcript was unchanged. Checking after the write would let a stranger graffiti a
+conversation they cannot see.
+
+And check it on **every** route that touches the resource. `/api/analyze` needed the
+same check as `/api/chat`, because analysing someone else's conversation is reading it
+with an extra step. **A permission enforced on one route and not its neighbour is not
+enforced.**
+
+### Nullable columns are a decision about the past
+
+Adding a `NOT NULL` column to a populated table forces you to say what the EXISTING
+rows mean. For ForgeAI's pre-016 conversations the only truthful answer was "nobody
+knows" — they predate the concept of an owner.
+
+```text
+invent an owner   → fabricating a fact
+delete them       → destroying data to tidy a schema
+leave NULL, treat NULL as "not yours"  → unreachable rather than misattributed
+```
+
+The third. **Orphaning is honest; misattribution is not.**
+
+### A credential that names nobody is not an identity
+
+`APP_SECRET` changed role in 016: it used to BE the password, and became the key that
+signs sessions plus the credential that authorizes registration. An operator secret,
+not a user one.
+
+Local development without it acts as a fixed `local-dev` user rather than as nobody —
+because once every resource is owned, "open" is incoherent: **an unowned request
+cannot own anything.** That account's password hash is a random value nobody holds, so
+it cannot be logged into.
+
+---
+
+# 37. The ForgeAI Learning Path
 
 The planned progression is:
 
@@ -1492,7 +1603,7 @@ What did I learn?
 
 ---
 
-# 37. My Engineering Philosophy
+# 38. My Engineering Philosophy
 
 ForgeAI is not supposed to become another tutorial project.
 
@@ -1518,7 +1629,7 @@ The goal is:
 
 ---
 
-# 38. Personal Career Direction
+# 39. Personal Career Direction
 
 My goal is to grow beyond simply implementing assigned software projects.
 
@@ -1564,7 +1675,7 @@ Areas I want to develop deeply:
 
 ---
 
-# 39. Rule for Learning New Technologies
+# 40. Rule for Learning New Technologies
 
 When encountering a new technical term, ask:
 
@@ -1602,12 +1713,12 @@ Understand the trade-offs.
 
 ---
 
-# 40. Current ForgeAI Status
+# 41. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 015.**
+**Last updated: 2026-09-15, after Experiment 016.**
 
-Experiments 001–015 are built, documented and tested. `pnpm test` runs 315 assertions
-across 17 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
+Experiments 001–016 are built, documented and tested. `pnpm test` runs 364 assertions
+across 18 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -1632,9 +1743,9 @@ src/app/
   api/login     session issue / revoke       (012)
   api/metrics   latency percentiles          (014)
 
-src/lib/        27 modules — see README for the trust annotations
-tests/          315 assertions, no framework
-.data/forge.db  SQLite — transcripts and revoked sessions   (015)
+src/lib/        28 modules — see README for the trust annotations
+tests/          364 assertions, no framework
+.data/forge.db  SQLite — users, transcripts, revoked sessions   (015, 016)
 scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
 
@@ -1650,7 +1761,7 @@ model call is **built and type-checked but not observed**. See section 41.
 
 ---
 
-# 41. Current Architecture
+# 42. Current Architecture
 
 ```text
 Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user controls this
@@ -1660,7 +1771,9 @@ Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user control
    ▼ ──────────────────────────────────────────  trust boundary
 Route Handler  ·  app/api/*/route.ts            ← trusted: the user cannot edit this
    │
-   ├─→ guard.ts       session check · rate limit · daily budget
+   ├─→ guard.ts       identity · session check · rate limit · daily budget
+   │                    └─ returns WHO, not just allowed/denied      (016)
+   ├─→ transcripts.ts readable(id, userId) — 404, never 403          (016)
    ├─→ passage.ts     nonce-fenced untrusted text        (010)
    ├─→ search.ts ─→ embeddings.ts   local model, no key  (007)
    └─→ ai.ts          ANTHROPIC_API_KEY · system prompts · tool loop
@@ -1675,7 +1788,7 @@ limit and the bill can live.
 
 ---
 
-# 42. What Is Verified, and What Is Not
+# 43. What Is Verified, and What Is Not
 
 This distinction matters more than any single lesson here. Three categories, per the
 operating rule — never write "working" because the code looks correct.
@@ -1697,7 +1810,10 @@ Latency p50 6ms / p95 1579ms on real traffic (014)
 A forged assistant turn is no longer expressible (015)
 A logged-out token is refused though its signature is valid (015)
 A conversation survives the server process being killed (015)
-pnpm test 315/315
+A stranger asking for your conversation gets the same 404 as for a fake id (016)
+A denied request leaves the target transcript unchanged (016)
+Login reveals nothing about which usernames exist, in message or timing (016)
+pnpm test 364/364
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -1711,6 +1827,8 @@ An average hides the tail; a log that captures a secret has moved that secret
 A 4xx is the client being wrong, not the server failing
 A signature proves authenticity, never that a token is still wanted
 Unguessable is not owned: authentication is not authorization
+A password needs a SLOW hash; a token needs a fast one. Opposite problems.
+Anything an attacker can measure is an output — timing and error choice included
 ```
 
 **Not yet verified — no API credential configured:**

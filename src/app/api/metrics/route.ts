@@ -16,8 +16,8 @@ import { observe } from "@/lib/observe";
  */
 export async function GET(request: Request) {
   return observe("metrics", async () => {
-    const denied = guard(request, "metrics");
-    if (denied !== null) return denied;
+    const auth = guard(request, "metrics");
+    if (auth instanceof Response) return auth;
 
     return Response.json(currentSnapshot(), {
       // Never cache a measurement; a cached one is a lie with a timestamp.

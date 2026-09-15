@@ -32,6 +32,11 @@ export type Conversation = {
   id: string;
   created_at: number;
   persona: PersonaId;
+  /**
+   * Experiment 016. NULL only for conversations created before owners existed —
+   * see the migration note in db.ts. `readable()` treats NULL as "not yours".
+   */
+  owner_id: string | null;
 };
 
 /**
@@ -48,13 +53,51 @@ function newConversationId(): string {
 export function createConversation(
   database: DatabaseSync,
   persona: PersonaId,
+  ownerId: string,
   now: number,
 ): Conversation {
-  const conversation: Conversation = { id: newConversationId(), created_at: now, persona };
+  const conversation: Conversation = {
+    id: newConversationId(), created_at: now, persona, owner_id: ownerId,
+  };
   database
-    .prepare("INSERT INTO conversations (id, created_at, persona) VALUES (?, ?, ?)")
-    .run(conversation.id, now, persona);
+    .prepare("INSERT INTO conversations (id, created_at, persona, owner_id) VALUES (?, ?, ?, ?)")
+    .run(conversation.id, now, persona, ownerId);
   return conversation;
+}
+
+/**
+ * The authorization check. Returns the conversation only if `userId` owns it.
+ *
+ * WHY THIS RETURNS null RATHER THAN THROWING A "FORBIDDEN"
+ *
+ * The routes turn this into a **404, never a 403**. A 403 says "this exists,
+ * but not for you" — which confirms the id is real. Conversation ids are
+ * unguessable, so that confirmation is the only thing an attacker with a
+ * stolen or leaked id could not already work out, and handing it over turns a
+ * half-leak into a whole one. To someone who does not own it, the conversation
+ * is indistinguishable from one that was never created.
+ *
+ * A NULL owner (a pre-016 conversation) is nobody's, so it is nobody's to read.
+ * The alternative — assigning those rows to whoever asks first — would be
+ * inventing ownership.
+ */
+export function readable(
+  database: DatabaseSync,
+  id: string,
+  userId: string,
+): Conversation | null {
+  const conversation = getConversation(database, id);
+  if (conversation === null) return null;
+  if (conversation.owner_id === null) return null;
+  if (conversation.owner_id !== userId) return null;
+  return conversation;
+}
+
+/** Every conversation belonging to one user, newest first. */
+export function listByOwner(database: DatabaseSync, userId: string): Conversation[] {
+  return database
+    .prepare("SELECT * FROM conversations WHERE owner_id = ? ORDER BY created_at DESC")
+    .all(userId) as Conversation[];
 }
 
 export function getConversation(
@@ -133,8 +176,11 @@ export function appendTurn(
 // ---------------------------------------------------------------------------
 
 export const transcripts = {
-  create: (persona: PersonaId) => createConversation(db(), persona, Date.now()),
-  get: (id: string) => getConversation(db(), id),
+  create: (persona: PersonaId, ownerId: string) =>
+    createConversation(db(), persona, ownerId, Date.now()),
+  /** Authorized lookup — null when it does not exist OR is not yours. */
+  readable: (id: string, userId: string) => readable(db(), id, userId),
+  listByOwner: (userId: string) => listByOwner(db(), userId),
   read: (id: string) => getTranscript(db(), id),
   append: (id: string, role: "user" | "assistant", content: string) =>
     appendTurn(db(), id, role, content, Date.now()),

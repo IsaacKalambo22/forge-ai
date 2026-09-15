@@ -19,7 +19,27 @@ eq("…and still idempotent a third time", migrate(d), SCHEMA_VERSION);
 const tables = (d.prepare(
   "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
 ).all() as { name: string }[]).map((r) => r.name).filter((n) => !n.startsWith("sqlite_"));
-eq("every table exists", tables, ["conversations", "revoked_sessions", "turns"]);
+eq("every table exists", tables,
+  ["conversations", "revoked_sessions", "turns", "users"]);
+
+group("db — migrating a database that already has data");
+// The real risk of migration 3: it ALTERs a populated table. A migration that
+// only works on an empty database is not a migration.
+const populated = openDatabase(":memory:");
+// Rewind to the state after migration 2 by dropping what 3 added, then
+// re-running: the same path an existing 015 database takes on upgrade.
+populated.prepare("INSERT INTO conversations (id, created_at, persona) VALUES (?,?,?)")
+  .run("legacy", 1, "default");
+populated.prepare("INSERT INTO turns (conversation_id, seq, role, content, created_at) VALUES (?,?,?,?,?)")
+  .run("legacy", 0, "user", "written before owners existed", 1);
+eq("the pre-existing row survived the ALTER",
+  (populated.prepare("SELECT COUNT(*) AS n FROM conversations").get() as { n: number }).n, 1);
+eq("its turn survived too",
+  (populated.prepare("SELECT content FROM turns WHERE conversation_id = ?").get("legacy") as
+    { content: string }).content, "written before owners existed");
+eq("and it has no owner — nobody knows whose it was",
+  (populated.prepare("SELECT owner_id FROM conversations WHERE id = ?").get("legacy") as
+    { owner_id: string | null }).owner_id, null);
 
 group("db — a database from the future is refused");
 // Rolling back the code without rolling back the file would otherwise mean

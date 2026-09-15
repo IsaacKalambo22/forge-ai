@@ -19,8 +19,8 @@ export async function POST(request: Request) {
 // no parameter through which a caller can supply one — not because it is
 // validated away, but because it does not exist.
 async function handle(request: Request, requestId: string) {
-  const denied = guard(request, "chat");
-  if (denied !== null) return denied;
+  const auth = guard(request, "chat");
+  if (auth instanceof Response) return auth;
 
   let body: unknown;
   try {
@@ -61,9 +61,13 @@ async function handle(request: Request, requestId: string) {
   // look like the model forgetting, which is a miserable thing to debug.
   let conversation;
   if (conversationId === undefined) {
-    conversation = transcripts.create(isPersonaId(persona) ? persona : "default");
+    conversation = transcripts.create(isPersonaId(persona) ? persona : "default", auth.userId);
   } else {
-    const existing = transcripts.get(conversationId);
+    // Experiment 016: an AUTHORIZED lookup. `readable()` returns null both when
+    // the conversation does not exist and when it belongs to someone else, and
+    // this route cannot tell the two apart — which is the point. A 403 would
+    // confirm the id is real; a 404 confirms nothing.
+    const existing = transcripts.readable(conversationId, auth.userId);
     if (existing === null) {
       return Response.json({ error: "Unknown conversation" }, { status: 404 });
     }

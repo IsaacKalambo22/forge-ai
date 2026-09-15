@@ -5,6 +5,7 @@ import { timingSafeEqual } from "node:crypto";
 import { consume, evictIdle, newBucket, type Bucket, type Limit } from "./ratelimit";
 import { SESSION_COOKIE, readCookie, verifySession } from "./session";
 import { revocations } from "./revocation";
+import { users, DEV_USER_ID } from "./users";
 
 // Per-caller allowance. Capacity is the burst; refill is the sustained rate.
 // 20 tokens refilling at 1/3 per second ≈ 20 chat calls per minute sustained.
@@ -24,6 +25,9 @@ const GLOBAL: Limit = {
 // weighting exists: one call can be six.
 export const COST = {
   search: 0, // local model only — rate-limited, but spends no money
+  login: 0,   // no model call; rate-limited because it guards a password
+  logout: 0,
+  register: 0,
   metrics: 0, // reads in-process counters — but still auth'd and rate-limited
   chat: 1,
   analyze: 1,
@@ -63,7 +67,17 @@ function secretMatches(provided: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-function checkAuth(request: Request): Response | null {
+/**
+ * WHO is making this request. Experiment 016.
+ *
+ * Before 016 authentication answered only "does the caller know the password",
+ * and there was nothing to answer WITH. Now every allowed request carries an
+ * identity, because a route that cannot name the caller cannot check whether
+ * a conversation is theirs.
+ */
+export type Identity = { userId: string };
+
+function checkAuth(request: Request): Response | Identity {
   const expected = process.env.APP_SECRET;
 
   if (expected === undefined || expected === "") {
@@ -76,25 +90,39 @@ function checkAuth(request: Request): Response | null {
         { status: 503 },
       );
     }
-    return null; // local development: open, as it always has been
+    // Local development: open, as it always has been — but as a REAL user
+    // rather than as nobody, because an unowned request cannot own anything.
+    return { userId: users.ensureDev() };
   }
 
   // Two ways in, for two different kinds of caller.
   //
-  //   Bearer token  — scripts and curl. The caller holds the secret.
+  //   Bearer token  — scripts and curl. The caller holds APP_SECRET, which
+  //                   since 016 is an operator credential: it acts as the
+  //                   local-dev user rather than as a person, because it names
+  //                   no one. It is the key that signs sessions, not an
+  //                   identity that has them.
   //   Session cookie — the browser. It holds a SIGNED CLAIM instead, because a
-  //                    browser that held the secret would leak it (Exp. 001/002).
+  //                    browser that held the secret would leak it (Exp. 001/002),
+  //                    and since 016 that claim says WHO.
   const header = request.headers.get("authorization") ?? "";
   const bearer = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (bearer !== "" && secretMatches(bearer, expected)) return null;
+  if (bearer !== "" && secretMatches(bearer, expected)) {
+    return { userId: users.ensureDev() };
+  }
 
   const cookie = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
-  if (cookie !== null && verifySession(cookie, expected, Date.now()).valid) {
+  if (cookie !== null) {
+    const result = verifySession(cookie, expected, Date.now());
     // Experiment 015. The signature says the token is AUTHENTIC; it cannot say
     // whether it has been logged out, because signing is stateless and a logout
     // is a fact about the world after the token was issued. The denylist is the
     // only thing that knows.
-    if (!revocations.isRevoked(cookie)) return null;
+    if (result.valid && !revocations.isRevoked(cookie)) {
+      // The subject is trusted ONLY because the MAC verified first. A payload
+      // read before the signature check is attacker-authored data.
+      return { userId: result.payload.sub };
+    }
   }
 
   // No distinction between missing, wrong, expired, forged or revoked — the
@@ -117,17 +145,31 @@ export function hasValidSession(request: Request): boolean {
   return !revocations.isRevoked(cookie);
 }
 
+/** The signed-in user, or null. Used by pages, which do not go through guard. */
+export function currentUserId(request: Request): string | null {
+  const secret = process.env.APP_SECRET;
+  if (secret === undefined || secret === "") return DEV_USER_ID;
+  const cookie = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
+  if (cookie === null) return null;
+  const result = verifySession(cookie, secret, Date.now());
+  if (!result.valid || revocations.isRevoked(cookie)) return null;
+  return result.payload.sub;
+}
+
 /**
  * Returns a Response to send instead of doing the work, or null to proceed.
  *
  * Called BEFORE any streaming begins, so it can still use real status codes —
  * Experiment 004. A 429 emitted mid-stream would be an HTTP 200.
  */
-export function guard(request: Request, route: RouteName): Response | null {
-  const denied = checkAuth(request);
-  if (denied !== null) return denied;
+export function guard(request: Request, route: RouteName): Response | Identity {
+  const auth = checkAuth(request);
+  if (auth instanceof Response) return auth;
 
-  return rateLimit(request, route);
+  const limited = rateLimit(request, route);
+  if (limited !== null) return limited;
+
+  return auth;
 }
 
 /**

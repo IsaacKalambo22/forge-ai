@@ -10,6 +10,19 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export type SessionPayload = {
+  /**
+   * Subject — WHO this session belongs to. Added in Experiment 016.
+   *
+   * Before 016 a session proved only "the bearer knew the one password", which
+   * is authentication with nobody to authenticate. With users, the session has
+   * to carry an identity or every request would be anonymous again the moment
+   * the cookie was verified.
+   *
+   * Safe to put in a signed-but-not-encrypted token: it is an opaque user id,
+   * not a secret, and the holder already knows who they are. What they cannot
+   * do is CHANGE it, because they cannot produce the MAC.
+   */
+  sub: string;
   /** Issued at, epoch milliseconds. */
   iat: number;
   /** Expires at, epoch milliseconds. */
@@ -27,8 +40,13 @@ function mac(payload: string, secret: string): Buffer {
   return createHmac("sha256", secret).update(payload).digest();
 }
 
-export function issueSession(secret: string, now: number, ttlMs = SESSION_TTL_MS): string {
-  const payload: SessionPayload = { iat: now, exp: now + ttlMs };
+export function issueSession(
+  secret: string,
+  userId: string,
+  now: number,
+  ttlMs = SESSION_TTL_MS,
+): string {
+  const payload: SessionPayload = { sub: userId, iat: now, exp: now + ttlMs };
   const encoded = b64url(Buffer.from(JSON.stringify(payload)));
   return `${encoded}.${b64url(mac(encoded, secret))}`;
 }
@@ -71,6 +89,12 @@ export function verifySession(token: string, secret: string, now: number): Sessi
   }
 
   if (typeof payload?.exp !== "number" || typeof payload?.iat !== "number") {
+    return { valid: false, reason: "malformed" };
+  }
+  // A token minted before Experiment 016 verifies and carries no subject. It is
+  // rejected rather than treated as some default user — a session that cannot
+  // say who it is has no business authorizing anything.
+  if (typeof payload?.sub !== "string" || payload.sub === "") {
     return { valid: false, reason: "malformed" };
   }
   if (now >= payload.exp) {

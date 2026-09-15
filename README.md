@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–015 complete.** `pnpm test` → 315/315. `pnpm lint` and
+**Experiments 001–016 complete.** `pnpm test` → 364/364. `pnpm lint` and
 `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 016 — Identity and Authorization.**
+Currently building: **Experiment 017 — Cost and Token Accounting.**
 
 ### Completed
 
@@ -26,17 +26,18 @@ Currently building: **Experiment 016 — Identity and Authorization.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 315 assertions, no framework
+- [x] Test suite — 364 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
+- [x] Identity & authorization — real users, scrypt passwords, owned conversations
 
 ### Currently building
 
-- [ ] **016 — Identity and Authorization.** 015 made conversations durable and left
-      them unowned: the project authenticates (*is this a valid session?*) but does
-      not authorize (*is this conversation yours?*). Needs real users, retiring
-      Experiment 012's "one password, no users".
+- [ ] **017 — Cost and Token Accounting.** Three experiments have deferred the same
+      item: 014 wanted per-request token counts, 011 caps spending by counting
+      *requests* (a proxy — one request can be six upstream calls), and 015 built a
+      durable store and put no billing facts in it.
 
 ### Blocked — no Anthropic API credential
 
@@ -55,7 +56,8 @@ separated from generation.
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
 - [ ] Token counts / cost per request — blocked on the credential, not on design
-- [ ] CSRF token
+- [ ] CSRF token — slightly more pressing now there is a state-changing `PUT`
+- [ ] Per-user rate limiting — the limiter runs before identity is known
 - [ ] Moving the rate limiter and telemetry into the store — deliberately deferred
       in 015: hot-path state, and a disk write per request fixes nothing until
       there is a second instance
@@ -89,7 +91,41 @@ Notes:
 - Environment variables are read when the dev server boots. **Restart after editing
   `.env.local`.**
 
-### 3. Run the dev server
+### 3. Optional: turn on accounts
+
+Locally, with no `APP_SECRET`, the app is open and every conversation is owned by a
+built-in `local-dev` user — so `curl` works with no ceremony. Set a secret to turn on
+real accounts:
+
+```bash
+APP_SECRET=some-long-operator-secret pnpm dev
+```
+
+`APP_SECRET` is an **operator** credential, not a user password (that changed in
+Experiment 016). It signs session cookies and authorizes registration:
+
+```bash
+# create an account — requires the operator secret
+curl -s -X PUT localhost:3000/api/login \
+  -H 'Authorization: Bearer some-long-operator-secret' \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"a-long-enough-password"}'
+
+# sign in — returns an HttpOnly cookie
+curl -s -c cookies.txt -X POST localhost:3000/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"a-long-enough-password"}'
+```
+
+Conversations are owned. Another signed-in user asking for one of yours gets
+`404 Unknown conversation` — byte-identical to an id that never existed, because a 403
+would confirm the id is real. See
+[Experiment 016](experiments/016-identity-and-authz/README.md).
+
+In production an unset `APP_SECRET` fails closed with a 503 rather than serving a
+metered endpoint to the internet.
+
+### 4. Run the dev server
 
 ```bash
 pnpm dev
@@ -233,7 +269,7 @@ src/
 │   ├── login.tsx             # Client Component — password form (shown only when locked)
 │   └── api/
 │       ├── login/
-│       │   └── route.ts      # POST sign in · DELETE sign out
+│       │   └── route.ts      # POST sign in · PUT register · DELETE sign out
 │       ├── agent/
 │       │   └── route.ts      # POST /api/agent — model chooses its own context
 │       ├── ask/
@@ -269,6 +305,7 @@ src/
     ├── db.ts                 # "server-only": SQLite + versioned migrations
     ├── transcripts.ts        # "server-only": server-owned conversations
     ├── revocation.ts         # "server-only": session denylist (hashes, not tokens)
+    ├── users.ts              # "server-only": scrypt passwords, timing-equalised auth
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
     ├── tools.ts              # "server-only": tool definitions + execution
@@ -277,8 +314,8 @@ src/
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
 scripts/                      # `pnpm eval` — the retrieval benchmark
-tests/                        # `pnpm test` — 315 assertions, no framework
-.data/forge.db                # SQLite — git-ignored, created on first run
+tests/                        # `pnpm test` — 364 assertions, no framework
+.data/forge.db                # SQLite — users, transcripts, revoked sessions
 ```
 
 ## Architecture
@@ -293,6 +330,8 @@ Browser  ·  chat.tsx ("use client")          ← untrusted: the user controls t
   │  ← NDJSON stream: {type:"conversation"} {type:"text"} … {type:"done"}
   ▼ ─────────────────────────────────────────  trust boundary
 Server   ·  app/api/chat/route.ts            ← trusted: the user cannot read or edit this
+  │                                             guard() → Identity { userId }   (016)
+  │                                             readable(id, userId) → 404      (016)
   │
   ▼
 AI Service  ·  lib/ai.ts                     ← holds ANTHROPIC_API_KEY
@@ -339,6 +378,7 @@ is the deliverable; the code is the apparatus.
 | 013 | [Evaluation](experiments/013-evaluation/README.md) | 🟢 **Verified end-to-end** — `pnpm eval`: recall@3 100%, MRR 0.896 vs 0.736 lexical |
 | 014 | [Observability](experiments/014-observability/README.md) | 🟢 **Verified end-to-end** — correlation ids, p50 6ms / p95 1579ms; **Exp. 001 provider leak closed** |
 | 015 | [Persistence](experiments/015-persistence/README.md) | 🟢 **Verified end-to-end** — SQLite; **Exp. 003 forgery and Exp. 012 revocation both closed** |
+| 016 | [Identity & Authorization](experiments/016-identity-and-authz/README.md) | 🟢 **Verified end-to-end** — cross-user access returns 404, byte-identical to nonexistent |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

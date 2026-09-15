@@ -66,6 +66,32 @@ const MIGRATIONS: string[] = [
 
   CREATE INDEX revoked_by_expiry ON revoked_sessions (expires_at);
   `,
+
+  // 3 — users, and ownership of conversations.
+  //
+  // Experiment 015 made conversations durable and left them unowned. The
+  // project could tell that a session was valid and could not tell whether a
+  // conversation belonged to it.
+  //
+  // `owner_id` is NULLABLE, and that is a decision rather than a shortcut.
+  // Adding a NOT NULL column to a populated table forces you to say what the
+  // EXISTING rows mean, and the only truthful answer here is "nobody knows" —
+  // these conversations predate the concept of an owner. Inventing an owner for
+  // them would be fabricating a fact. They are left NULL, and the authorization
+  // check below treats NULL as "not yours", so they become unreachable rather
+  // than misattributed.
+  `
+  CREATE TABLE users (
+    id            TEXT PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    created_at    INTEGER NOT NULL
+  );
+
+  ALTER TABLE conversations ADD COLUMN owner_id TEXT REFERENCES users(id);
+
+  CREATE INDEX conversations_by_owner ON conversations (owner_id);
+  `,
 ];
 
 /**

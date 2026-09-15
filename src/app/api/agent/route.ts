@@ -12,8 +12,8 @@ export async function POST(request: Request) {
 async function handle(request: Request, requestId: string) {
   // Auth, rate limit and budget — before ANY work, and before the first
   // byte, so a real status code is still available (Experiment 004).
-  const denied = guard(request, "agent");
-  if (denied !== null) return denied;
+  const auth = guard(request, "agent");
+  if (auth instanceof Response) return auth;
 
   let body: unknown;
   try {
