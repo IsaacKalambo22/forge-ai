@@ -14,6 +14,20 @@ import { join } from "node:path";
 import { readNdjsonStream } from "@/lib/ndjson";
 import type { StreamEvent } from "@/lib/messages";
 
+/** A per-run port, so two harnesses cannot collide on a fixed one. */
+function randomPort(): number {
+  return 3400 + Math.floor(Math.random() * 500);
+}
+
+async function somethingIsListening(port: number): Promise<boolean> {
+  try {
+    await fetch(`http://localhost:${port}/`, { signal: AbortSignal.timeout(1000) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type Server = {
   url: string;
   secret: string;
@@ -29,8 +43,16 @@ export type Server = {
  * into `.data/forge.db` — an end-to-end suite that pollutes the development
  * database is one nobody runs twice.
  */
-export async function startServer(port = 3311): Promise<Server> {
+export async function startServer(port = randomPort()): Promise<Server> {
   const dir = mkdtempSync(join(tmpdir(), "forge-e2e-"));
+
+  // If ANYTHING already answers here, this server will fail to bind and the
+  // client would then talk to whatever is already listening — which has a
+  // different APP_SECRET, so the failure surfaces as `register alice failed:
+  // 401` and points at the auth code. Fail loudly instead.
+  if (await somethingIsListening(port)) {
+    throw new Error(`Port ${port} is already in use — refusing to start a second server`);
+  }
   const secret = `e2e-secret-${Math.random().toString(36).slice(2)}`;
   let output = "";
 
@@ -55,12 +77,21 @@ export async function startServer(port = 3311): Promise<Server> {
   const url = `http://localhost:${port}`;
   const deadline = Date.now() + 60_000;
   for (;;) {
+    // If the child has already exited, polling for the rest of the minute only
+    // delays a failure whose cause is sitting in `output` right now. Report it.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(
+        `Server exited during startup (code ${child.exitCode}, signal ${child.signalCode}).\n` +
+          output.slice(-2000),
+      );
+    }
     if (Date.now() > deadline) {
       child.kill("SIGKILL");
       throw new Error(`Server did not start within 60s.\n${output.slice(-2000)}`);
     }
     try {
       // Any response at all means it is listening; a 401/404 is still a server.
+      // Safe here only because the port was verified free before spawning.
       await fetch(`${url}/api/metrics`, { signal: AbortSignal.timeout(2000) });
       break;
     } catch {
@@ -103,9 +134,27 @@ export type Client = {
   stream(path: string, body: unknown): Promise<{ status: number; events: StreamEvent[] }>;
 };
 
+/**
+ * Each client presents as a distinct caller.
+ *
+ * Found by a FLAKY GATE: the rate limiter buckets per IP, and every client here
+ * arrived with no `x-forwarded-for`, so alice, bob and carol shared one bucket
+ * of 20 tokens refilling at 1/3 per second. A suite that runs fast enough
+ * exhausts it and starts getting 429s — the same run passed and then failed
+ * thirty seconds later, purely on timing.
+ *
+ * This is not dodging the rate limit. These ARE different callers, and a real
+ * deployment behind a proxy is exactly where `x-forwarded-for` is trustworthy
+ * (see the warning in guard.ts about where it is not). Presenting them as one
+ * address was the unrealistic part.
+ */
+let callerCount = 0;
+
 export function makeClient(server: Server, cookie: string | null = null): Client {
+  const caller = `10.0.0.${++callerCount % 250}`;
   const headers = (extra: HeadersInit = {}): HeadersInit => ({
     "Content-Type": "application/json",
+    "X-Forwarded-For": caller,
     ...(cookie === null ? {} : { Cookie: cookie }),
     ...extra,
   });
@@ -144,9 +193,16 @@ export async function signIn(
   username: string,
   password = "an-e2e-test-password",
 ): Promise<Client> {
+  // Register and log in as the same caller the returned client will use, so the
+  // whole sign-in flow counts against one bucket rather than the shared one.
+  const caller = `10.0.1.${(callerCount + 1) % 250}`;
   const registered = await fetch(`${server.url}/api/login`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${server.secret}` },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Forwarded-For": caller,
+      Authorization: `Bearer ${server.secret}`,
+    },
     body: JSON.stringify({ username, password }),
   });
   if (registered.status !== 201) {
@@ -155,7 +211,7 @@ export async function signIn(
 
   const login = await fetch(`${server.url}/api/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Forwarded-For": caller },
     body: JSON.stringify({ username, password }),
   });
   if (!login.ok) throw new Error(`login ${username} failed: ${login.status}`);

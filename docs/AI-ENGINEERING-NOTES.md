@@ -1947,6 +1947,95 @@ That three-way distinction — pass / fail / unusable — earned itself the firs
 ForgeAI ran the harness for real: an empty answer came back `unusable`, where
 collapsing it into `fail` would have reported a regression that did not exist.
 
+### A notebook that indexes itself becomes its own attack surface
+
+ForgeAI retrieves from `experiments/*/README.md` on disk. Experiment 010's README
+*documents* a prompt-injection attack — `</passage>`, `SYSTEM OVERRIDE: ignore all
+previous instructions`, a forged `trusted="yes"`. So the corpus contains live payloads,
+put there by writing about the problem honestly.
+
+Measured on the live index: a query about passage escaping retrieved passages
+containing real `</passage>` tags, and the renderer neutralised 5 of them with none
+surviving into the prompt. **The defence is exercised by real data, not only by tests.**
+
+The sharper consequence: **in a system that reads its own documentation, writing the
+test down can break the test.** A canary phrase chosen because it is absent from the
+corpus stops working the moment an experiment README quotes it — and nothing connects
+the cause to the failure months later.
+
+The only durable answer is a probe that **validates its own preconditions at run
+time**:
+
+```text
+if (corpusContains(CANARY)) → report "unusable", not "failed"
+```
+
+A comment saying "don't quote this phrase" is exactly the kind of instruction that gets
+lost.
+
+### Retrieval indexes grow with the thing they index
+
+```text
+Experiment 008    65 chunks
+Experiment 023   256 chunks · 8.6 minutes to build · ~850 MB · 93ms once warm
+```
+
+An in-process embedding model was the right call at 65 chunks and quietly stopped
+being comfortable at 256 — rebuilt from scratch on every restart, with the request
+simply *waiting* because the promise is cached and nothing reports progress.
+
+Things to decide before the corpus is large, not after:
+
+```text
+persist the index        embeddings are float arrays; any store will hold them
+cache by content hash    most restarts change nothing — re-embed only what moved
+batch the embedding      one call over hundreds of long texts is where memory goes
+report readiness         a request that waits minutes in silence is a bug
+```
+
+**A cold-start cost that scales with your documentation is a cost that only appears
+once the project is going well.**
+
+### A test suite can be rate-limited by the system it tests
+
+ForgeAI's e2e suite went from 32/32 to 30/32 between two runs thirty seconds apart:
+
+```text
+logout succeeds                  got 429, want 200
+the same cookie is now refused   got 429, want 401
+```
+
+Three different users all arrived with no `x-forwarded-for`, so the per-IP limiter
+bucketed them as one caller sharing 20 tokens. Whether the suite exhausted the bucket
+depended on how warm the caches were — the definition of flaky.
+
+The fix was **not** to relax the limiter. They are genuinely different callers;
+presenting them as one address was the unrealistic part.
+
+**A flaky gate is worse than no gate**: it teaches people to re-run until green, which
+is how a real failure gets ignored.
+
+### A readiness probe must identify the server, not just the port
+
+The same suite then failed with `register alice failed` — pointing at registration,
+which was fine. A previous run's server was still holding the fixed port, the new one
+could not bind, and the client talked to the **old** server, whose `APP_SECRET`
+differed.
+
+```text
+check the port is FREE before spawning   → fail loudly instead of misdirecting
+use a random port per run                → collisions become impossible
+check child.exitCode while polling       → report the real error at once
+```
+
+That last one is worth doing everywhere: polling a dead child until a 60-second
+timeout throws away the actual failure, which was in the captured output from the
+start.
+
+**Both flakes produced error messages naming innocent code** — a 429 blamed logout, a
+401 blamed registration. When a test fails at a boundary, suspect the harness before
+the feature.
+
 ### Verification is not a gate unless something runs it
 
 A verified claim can silently regress. A command someone has to remember is better
@@ -2157,9 +2246,9 @@ Understand the trade-offs.
 
 # 44. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 022.**
+**Last updated: 2026-09-15, after Experiment 023.**
 
-Experiments 001–022 are built, documented and tested. One command, `pnpm check`, runs
+Experiments 001–023 are built, documented and tested. One command, `pnpm check`, runs
 every gate in ~38s, and a pre-push hook plus CI run it automatically. `pnpm test` runs 561 assertions
 across 24 files; `pnpm e2e` runs 32 end-to-end assertions against a real server. `npx tsc --noEmit` and `pnpm lint` are clean.
 
@@ -2187,7 +2276,7 @@ src/app/
   api/metrics   latency percentiles          (014)
 
 src/lib/        31 modules — see README for the trust annotations
-tests/          561 assertions, no framework
+tests/          593 assertions, no framework
 scripts/        pnpm eval · cost · verify · e2e · check (022, the gate)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
@@ -2265,6 +2354,8 @@ Pruning + caching is WORSE than pruning alone: reuse collapses 8850 → 922 (019
 All 9 blocked claims have fixture-tested evaluators; only evidence is missing (020)
 32 end-to-end assertions pass against a real server, no credential needed (021)
 The full gate runs in ~38s; breaking a test on purpose stops it at that gate (022)
+The corpus really contains injection payloads; the renderer neutralised 5 (023)
+The notebook index is 256 chunks and takes 8.6 minutes to build (023)
 pnpm test 561/561 · pnpm e2e 32/32
 ```
 

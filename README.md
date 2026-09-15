@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–022 complete.** `pnpm check` → all gates pass (~38s):
-types · lint · 561 unit · 32 end-to-end · retrieval benchmark.
+**Experiments 001–023 complete.** `pnpm check` → all gates pass (~38s):
+types · lint · 593 unit · 32 end-to-end · retrieval benchmark.
 
-Currently building: **Experiment 023 — Prompt-Injection, End to End.**
+Currently building: **Experiment 024 — Making the Index Affordable.**
 
 ### Completed
 
@@ -26,7 +26,7 @@ Currently building: **Experiment 023 — Prompt-Injection, End to End.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 561 assertions, no framework
+- [x] Test suite — 593 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
@@ -37,13 +37,14 @@ Currently building: **Experiment 023 — Prompt-Injection, End to End.**
 - [x] Verification harness — `pnpm verify`, 9 claims with fixture-tested evaluators
 - [x] End-to-end suite — `pnpm e2e`, 32 assertions through the front door
 - [x] Continuous verification — `pnpm check`, a pre-push hook, and CI
+- [x] Injection tested against the real corpus — which genuinely contains payloads
 
 ### Currently building
 
-- [ ] **023 — Prompt-Injection, End to End.** 010 found a real vulnerability and fixed
-      it, and the defence is verified only against a function. Every other security
-      property got an end-to-end assertion in 021; the one where the attack arrives
-      inside *data the model reads* did not.
+- [ ] **024 — Making the Index Affordable.** Measured in 023: the notebook index is
+      **256 chunks and takes 8.6 minutes** to build from scratch on every restart,
+      at ~850 MB. It was 65 chunks in Experiment 008. Every README written makes it
+      worse, and nothing tells a waiting user it is happening.
 
 ### Blocked — no Anthropic API credential
 
@@ -537,6 +538,7 @@ is the deliverable; the code is the apparatus.
 | 020 | [Verification Debt](experiments/020-verification-debt/README.md) | 🟢 **Harness verified** — 9 fixture-tested evaluators; the debt is now redeemable in one command |
 | 021 | [End-to-End](experiments/021-end-to-end/README.md) | 🟢 **Verified** — first e2e suite, 32 assertions; `pnpm verify` now 9/9; a process leak found and fixed |
 | 022 | [Continuous Verification](experiments/022-continuous-verification/README.md) | 🟢 **Verified** — `pnpm check` gate (~38s), pre-push hook fires; CI written, not yet run |
+| 023 | [Injection, Beyond the Unit Test](experiments/023-injection-end-to-end/README.md) | 🟢 **Verified** — the corpus really contains payloads; renderer holds. Surfaced an 8.6-min index build |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

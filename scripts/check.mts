@@ -41,12 +41,12 @@ const GATES: Gate[] = [
   {
     name: "test",
     command: "node", args: [...NODE_FLAGS, "tests/run.mts"],
-    why: "561 assertions — the pieces",
+    why: "the unit suite — the pieces",
   },
   {
     name: "e2e",
     command: "node", args: [...NODE_FLAGS, "scripts/e2e.mts"],
-    why: "32 assertions — whether the pieces fit together",
+    why: "end-to-end — whether the pieces fit together",
   },
   {
     name: "eval",
