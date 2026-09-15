@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { MAX_TURNS, type ChatMessage, type StreamEvent } from "@/lib/messages";
+import { readNdjsonStream } from "@/lib/ndjson";
 import type { ConversationAnalysis } from "@/lib/analysis";
 import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
 
@@ -70,54 +71,39 @@ export default function Chat() {
       return;
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    // Experiment 021: one shared NDJSON reader (src/lib/ndjson.ts). This loop
+    // used to be hand-rolled here and again in ask.tsx, with the test suite
+    // mirroring a third copy — so the test verified none of the shipped code.
     let answer = "";
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      // Network chunks do NOT align with line boundaries: one read can deliver
-      // half a JSON object, or three and a half. Keep the remainder in `buffer`
-      // and only parse up to the last complete newline.
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (line.trim() === "") continue;
-        const event = JSON.parse(line) as StreamEvent;
-
-        if (event.type === "conversation") {
-          // Arrives before any model output, so a turn that fails halfway still
-          // leaves the browser able to resume the right conversation.
-          setConversationId(event.id);
-        } else if (event.type === "text") {
-          answer += event.text;
-          setStreaming(answer);
-        } else if (event.type === "done") {
-          setMeta(
-            `${event.usage.input_tokens} in / ${event.usage.output_tokens} out · ` +
-              `stop_reason: ${event.stop_reason} · ${event.model}`,
-          );
-        } else if (event.type === "tool_use") {
-          setActivity((previous) => [
-            ...previous,
-            `→ ${event.name}(${JSON.stringify(event.input)})`,
-          ]);
-        } else if (event.type === "tool_result") {
-          setActivity((previous) => [
-            ...previous,
-            `${event.is_error ? "✗" : "←"} ${event.name}: ${event.output}`,
-          ]);
-        } else if (event.type === "error") {
-          // Reported on an HTTP 200: the status was already sent.
-          setError(event.error);
-        }
+    await readNdjsonStream<StreamEvent>(response.body, (event) => {
+      if (event.type === "conversation") {
+        // Arrives before any model output, so a turn that fails halfway still
+        // leaves the browser able to resume the right conversation.
+        setConversationId(event.id);
+      } else if (event.type === "text") {
+        answer += event.text;
+        setStreaming(answer);
+      } else if (event.type === "done") {
+        setMeta(
+          `${event.usage.input_tokens} in / ${event.usage.output_tokens} out · ` +
+            `stop_reason: ${event.stop_reason} · ${event.model}`,
+        );
+      } else if (event.type === "tool_use") {
+        setActivity((previous) => [
+          ...previous,
+          `→ ${event.name}(${JSON.stringify(event.input)})`,
+        ]);
+      } else if (event.type === "tool_result") {
+        setActivity((previous) => [
+          ...previous,
+          `${event.is_error ? "✗" : "←"} ${event.name}: ${event.output}`,
+        ]);
+      } else if (event.type === "error") {
+        // Reported on an HTTP 200: the status was already sent.
+        setError(event.error);
       }
-    }
+    });
 
     // Only a completed reply joins the history.
     if (answer !== "") {

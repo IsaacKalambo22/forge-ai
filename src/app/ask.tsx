@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import type { StreamEvent } from "@/lib/messages";
+import { readNdjsonStream } from "@/lib/ndjson";
 
 type Source = { heading: string; file: string; score: number };
 
@@ -49,46 +50,32 @@ export default function Ask() {
     }
 
     // Same NDJSON reader as chat.tsx — buffer the tail, parse whole lines only.
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    // Experiment 021: the shared NDJSON reader (src/lib/ndjson.ts).
     let text = "";
 
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (line.trim() === "") continue;
-        const event = JSON.parse(line) as StreamEvent;
-
-        if (event.type === "sources") {
-          // Arrives before the model is called, so the retrieved passages are
-          // visible even when generation fails.
-          setSources(event.sources);
-        } else if (event.type === "text") {
-          text += event.text;
-          setAnswer(text);
-        } else if (event.type === "tool_use") {
-          setTrace((p) => [...p, `→ ${event.name}(${JSON.stringify(event.input)})`]);
-        } else if (event.type === "tool_result") {
-          setTrace((p) => [
-            ...p,
-            `${event.is_error ? "✗" : "←"} ${event.name}: ${event.output.slice(0, 90)}…`,
-          ]);
-        } else if (event.type === "step") {
-          setTrace((p) => [...p, `— step ${event.index} complete`]);
-        } else if (event.type === "stopped") {
-          setTrace((p) => [...p, `■ ${event.detail}`]);
-        } else if (event.type === "error") {
-          setError(event.error);
-        }
+    await readNdjsonStream<StreamEvent>(response.body, (event) => {
+      if (event.type === "sources") {
+        // Arrives before the model is called, so the retrieved passages are
+        // visible even when generation fails.
+        setSources(event.sources);
+      } else if (event.type === "text") {
+        text += event.text;
+        setAnswer(text);
+      } else if (event.type === "tool_use") {
+        setTrace((p) => [...p, `→ ${event.name}(${JSON.stringify(event.input)})`]);
+      } else if (event.type === "tool_result") {
+        setTrace((p) => [
+          ...p,
+          `${event.is_error ? "✗" : "←"} ${event.name}: ${event.output.slice(0, 90)}…`,
+        ]);
+      } else if (event.type === "step") {
+        setTrace((p) => [...p, `— step ${event.index} complete`]);
+      } else if (event.type === "stopped") {
+        setTrace((p) => [...p, `■ ${event.detail}`]);
+      } else if (event.type === "error") {
+        setError(event.error);
       }
-    }
+    });
 
     setAsking(false);
   }

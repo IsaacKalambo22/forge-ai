@@ -1906,6 +1906,47 @@ conclusion would be wrong — the mechanism fine, the probe broken.
 
 Before trusting a red result, ask what else could produce it.
 
+### A test that mirrors the implementation tests nothing
+
+ForgeAI's stream test opened with *"The algorithm lives in chat.tsx and ask.tsx; this
+mirrors it."* Three copies of a boundary-sensitive reader, and a test covering none of
+them — it could pass while both clients carried the exact bug it was written to catch.
+
+**If a test reimplements the thing it tests, it verifies the copy.** Extract the
+algorithm and point everything at it, including the test.
+
+### End-to-end coverage answers a different question
+
+Unit tests prove the pieces are right. Nothing proves they fit together: that a cookie
+issued by one route is accepted by another, that a 404 is byte-identical *over real
+HTTP*, that no secret reached the log — which is a stronger claim than "the redaction
+function works", because it says nothing tried.
+
+### A harness must clean up after itself
+
+`next dev` spawns a separate `next-server` process. Killing the direct child orphans
+the grandchild, which keeps the port. ForgeAI's e2e suite leaked one on every run
+**while reporting success**, and the failure surfaced minutes later in a different
+command, pointing at innocent code.
+
+```text
+spawn(..., { detached: true })      // child gets its own process group
+process.kill(-child.pid, "SIGKILL") // kill the GROUP, not the process
+```
+
+`kill(pid)` is not "stop this program". And a leak is invisible to the thing that
+caused it — which is why it reported success.
+
+### Fault-tolerant gathering
+
+A verification harness that aborts the whole run because one probe failed reports
+nothing about the other eight. Wrap each probe; a failure means *not gathered*, which
+is different again from *failed*.
+
+That three-way distinction — pass / fail / unusable — earned itself the first time
+ForgeAI ran the harness for real: an empty answer came back `unusable`, where
+collapsing it into `fail` would have reported a regression that did not exist.
+
 ### Verification is not a gate unless something runs it
 
 A verified claim can silently regress. A command someone has to remember is better
@@ -2065,10 +2106,10 @@ Understand the trade-offs.
 
 # 44. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 020.**
+**Last updated: 2026-09-15, after Experiment 021.**
 
-Experiments 001–020 are built, documented and tested. `pnpm test` runs 553 assertions
-across 24 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
+Experiments 001–021 are built, documented and tested. `pnpm test` runs 561 assertions
+across 24 files; `pnpm e2e` runs 32 end-to-end assertions against a real server. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -2094,8 +2135,8 @@ src/app/
   api/metrics   latency percentiles          (014)
 
 src/lib/        31 modules — see README for the trust annotations
-tests/          553 assertions, no framework
-scripts/        pnpm eval (013) · pnpm cost (018) · pnpm verify (020)
+tests/          561 assertions, no framework
+scripts/        pnpm eval (013) · pnpm cost (018) · pnpm verify (020) · pnpm e2e (021)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
@@ -2170,7 +2211,8 @@ History growth is quadratic: 4x the input per doubling of turns (018)
 Prefix caching is 53% cheaper than full history at 20 turns, losslessly (018)
 Pruning + caching is WORSE than pruning alone: reuse collapses 8850 → 922 (019)
 All 9 blocked claims have fixture-tested evaluators; only evidence is missing (020)
-pnpm test 553/553
+32 end-to-end assertions pass against a real server, no credential needed (021)
+pnpm test 561/561 · pnpm e2e 32/32
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -2192,6 +2234,8 @@ Caching needs an append-only history; editing the prefix destroys it
 A tool_result block cannot be dropped — only its content replaced
 "Blocked" and "unbuilt" are different states — most of a blocked claim is buildable
 State a limitation where the expectation is formed, not where the code finds it
+A test that reimplements what it tests verifies the copy, not the code
+kill(pid) is not "stop this program" — kill the process group
 Anything an attacker can measure is an output — timing and error choice included
 ```
 

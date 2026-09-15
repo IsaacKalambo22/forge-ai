@@ -11,6 +11,8 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { CLAIMS, SDK_CLAIMS, APP_CLAIMS, type Claim, type Verdict } from "@/lib/claims";
 import { PRICING, costOf, formatCost } from "@/lib/pricing";
+import type { StreamEvent } from "@/lib/messages";
+import { startServer, signIn } from "./app-client.mts";
 
 const MODEL = "claude-opus-5";
 
@@ -34,9 +36,8 @@ if (!haveCredential) {
   }
   console.log(`\n  ${CLAIMS.length} claims blocked. The evaluators for all of them are unit-tested`);
   console.log(`  against fixtures — run \`pnpm test\`. Only the evidence is missing.\n`);
-  console.log(`  Coverage of this harness: ${SDK_CLAIMS.length} of ${CLAIMS.length} are gathered by a direct API call.`);
-  console.log(`  The other ${APP_CLAIMS.length} need the running application and are NOT yet gathered:`);
-  for (const c of APP_CLAIMS) console.log(`    ${DIM}- ${c.id}${OFF}`);
+  console.log(`  Coverage: ${SDK_CLAIMS.length} gathered by a direct API call, ${APP_CLAIMS.length} by driving the app:`);
+  for (const c of APP_CLAIMS) console.log(`    ${DIM}- ${c.id}  (starts a server on its own database)${OFF}`);
   console.log();
   console.log(`  To run for real:  ANTHROPIC_API_KEY=sk-ant-... pnpm verify\n`);
   process.exit(0);
@@ -55,11 +56,32 @@ function bill(usage: Anthropic.Usage, model: string): void {
 
 const QUESTION = "What is the capital of France?";
 
-/** Collects the evidence for every claim, then evaluates. */
+/**
+ * Collects the evidence for every claim.
+ *
+ * Each section is independently fault-tolerant. A harness that aborts the whole
+ * run because one probe failed reports nothing about the other eight — and the
+ * probes fail independently in practice (a model decline, a rate limit, a route
+ * that is down). A section that throws leaves its claims without evidence, and
+ * they are reported as "not gathered" rather than as failures.
+ */
+const gatherErrors: string[] = [];
+
+async function section(name: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    gatherErrors.push(`${name}: ${detail}`);
+    console.log(`  ${YELLOW}!${OFF} could not gather ${name}: ${DIM}${detail.slice(0, 90)}${OFF}`);
+  }
+}
+
 async function gather(): Promise<Map<string, unknown>> {
   const evidence = new Map<string, unknown>();
 
   // One ordinary call — serves the 001 and 017 claims.
+  await section("basic call", async () => {
   const basic = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
@@ -68,9 +90,11 @@ async function gather(): Promise<Map<string, unknown>> {
   bill(basic.usage, basic.model);
   evidence.set("001-content-blocks", basic);
   evidence.set("017-live-usage-row", basic.usage);
+  });
 
   // A deliberately tiny ceiling, to make stop_reason flip. This is the one
   // place a small max_tokens is correct rather than a mistake.
+  await section("truncation probe", async () => {
   const truncated = await client.messages.create({
     model: MODEL,
     max_tokens: 16,
@@ -78,11 +102,13 @@ async function gather(): Promise<Map<string, unknown>> {
   });
   bill(truncated.usage, truncated.model);
   evidence.set("001-max-tokens-stop-reason", truncated);
+  });
 
   // The same question under two system prompts — Experiment 002's open question.
   const text = (m: Anthropic.Message) =>
     m.content.filter((b) => b.type === "text").map((b) => b.text).join("");
 
+  await section("persona comparison", async () => {
   const [plain, terse] = await Promise.all([
     client.messages.create({
       model: MODEL, max_tokens: 1024,
@@ -101,10 +127,12 @@ async function gather(): Promise<Map<string, unknown>> {
   evidence.set("002-personas-change-behaviour", {
     default_answer: text(plain), terse_answer: text(terse),
   });
+  });
 
   // Two turns over one prefix, with a cache breakpoint — Experiment 018's claim.
   // The prefix is padded past the minimum cacheable size deliberately: below it
   // the API silently does not cache, which would look like a failure and is not.
+  await section("cache probe", async () => {
   const padding = "Background notes for reference.\n".repeat(400);
   const cachedSystem: Anthropic.TextBlockParam[] = [
     { type: "text", text: padding, cache_control: { type: "ephemeral" } },
@@ -120,17 +148,62 @@ async function gather(): Promise<Map<string, unknown>> {
   });
   bill(second.usage, second.model);
   evidence.set("018-cache-actually-hits", second.usage);
+  });
+
+  // -------------------------------------------------------------------------
+  // Experiment 021. The remaining four claims exercise the code this project
+  // WROTE — the tool loop, the agent loop, the structured-output route, the
+  // pruning decision — rather than the model's behaviour. They need the running
+  // application, so the harness starts one on its own throwaway database.
+  // -------------------------------------------------------------------------
+  await section("app-backed claims", async () => {
+  console.log(`  ${DIM}starting a server for the app-backed claims…${OFF}`);
+  const server = await startServer(3312);
+  try {
+    const user = await signIn(server, "verifier");
+
+    // 006 — does the tool loop actually execute? Arithmetic the model cannot do
+    // reliably in its head is what makes it reach for the calculator.
+    const toolRun = await user.stream("/api/chat", {
+      message: "What is 40213 multiplied by 71? Use your calculator tool.",
+    });
+    evidence.set("006-tool-loop-executes", toolRun.events);
+
+    // 005 — structured output, over the conversation the tool run just created.
+    const conversationId = (toolRun.events.find((e) => e.type === "conversation") as
+      { id: string } | undefined)?.id;
+    if (conversationId !== undefined) {
+      const analysis = await user.json("/api/analyze", { conversation_id: conversationId });
+      // The route returns { analysis } on success; the claim reads parsed_output.
+      const body = analysis.body as { analysis?: unknown; error?: string };
+      evidence.set("005-schema-conformance", { parsed_output: body.analysis ?? null });
+    }
+
+    // 009 and 019 — one agent run answers both: did the loop execute, and did
+    // it still cite its sources with older passages pruned (keepRecent = 3)?
+    const agentRun = await user.stream("/api/agent", {
+      question: "What did this project learn about capping the agent loop?",
+    });
+    evidence.set("009-agent-loop-executes", agentRun.events);
+
+    const answer = agentRun.events
+      .filter((e): e is Extract<StreamEvent, { type: "text" }> => e.type === "text")
+      .map((e) => e.text)
+      .join("");
+    const sources = agentRun.events
+      .filter((e): e is Extract<StreamEvent, { type: "sources" }> => e.type === "sources")
+      .flatMap((e) => e.sources.map((s) => s.file));
+    evidence.set("019-pruning-preserves-citations", { answer, sources });
+  } finally {
+    server.stop();
+  }
+  });
 
   return evidence;
 }
 
-let evidence: Map<string, unknown>;
-try {
-  evidence = await gather();
-} catch (error) {
-  console.error(`${RED}  Failed while gathering evidence:${OFF} ${(error as Error).message}\n`);
-  process.exit(1);
-}
+const evidence = await gather();
+if (gatherErrors.length > 0) console.log();
 
 let passed = 0, failed = 0, skipped = 0;
 const results: { claim: Claim; verdict: Verdict | null }[] = [];
@@ -162,6 +235,10 @@ for (const { claim, verdict } of results) {
 }
 
 console.log(`\n  ${passed} passed, ${failed} failed, ${skipped} not gathered`);
+if (gatherErrors.length > 0) {
+  console.log(`\n  ${YELLOW}${gatherErrors.length} probe(s) could not be gathered:${OFF}`);
+  for (const e of gatherErrors) console.log(`    ${DIM}${e.slice(0, 110)}${OFF}`);
+}
 console.log(`  cost of this run: ${formatCost(spent)}  (${MODEL} at $${PRICING[MODEL].input / 1000}/$${PRICING[MODEL].output / 1000} per MTok)\n`);
 
 process.exit(failed > 0 ? 1 : 0);

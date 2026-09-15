@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–020 complete.** `pnpm test` → 553/553. `pnpm lint` and
-`npx tsc --noEmit` → clean.
+**Experiments 001–021 complete.** `pnpm test` → 561/561 · `pnpm e2e` → 32/32 ·
+`pnpm lint` and `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 021 — Gathering the `app` Claims.**
+Currently building: **Experiment 022 — Continuous Verification.**
 
 ### Completed
 
@@ -26,7 +26,7 @@ Currently building: **Experiment 021 — Gathering the `app` Claims.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 553 assertions, no framework
+- [x] Test suite — 561 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
@@ -35,12 +35,14 @@ Currently building: **Experiment 021 — Gathering the `app` Claims.**
 - [x] Context management — prefix caching, 53% cheaper at `MAX_TURNS`, lossless
 - [x] Agent-loop context — tool-result pruning, 60% cheaper per run
 - [x] Verification harness — `pnpm verify`, 9 claims with fixture-tested evaluators
+- [x] End-to-end suite — `pnpm e2e`, 32 assertions through the front door
 
 ### Currently building
 
-- [ ] **021 — Gathering the `app` Claims.** Take `pnpm verify` from 5 of 9 to 9 of 9:
-      drive the running application rather than the SDK. The plumbing is the same
-      an end-to-end test suite needs — which this project has never had.
+- [ ] **022 — Continuous Verification.** Four commands check different things and
+      *nothing runs any of them*. Every one depends on a person remembering — the
+      same failure mode as the comment claiming a rate limit that did not exist (012)
+      and the README that contradicted itself for twelve experiments (013).
 
 ### Blocked — no Anthropic API credential
 
@@ -78,6 +80,8 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 - [ ] Prefix caching on `/api/ask`
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
+- [ ] CI — nothing runs `test` / `e2e` / `eval` / `verify` automatically
+- [ ] Client-component tests — `chat.tsx` state handling is only hand-clicked
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
 - [ ] CSRF token — slightly more pressing now there is a state-changing `PUT`
@@ -320,6 +324,23 @@ correctly; counting it would make the alarm ring for someone else's broken scrip
 
 See [Experiment 014](experiments/014-observability/README.md).
 
+## End-to-end
+
+Every route used to be checked by hand with `curl` — 500+ unit assertions proved the
+pieces, and nothing proved they fit together:
+
+```bash
+pnpm e2e
+```
+
+Starts a server on its own throwaway database, registers real users, and drives the
+app through the front door: auth, validation, streaming, conversation persistence,
+cross-user authorization, session revocation, and structured logging. **32 assertions,
+no API credential required.**
+
+The redaction check is the one worth noting — the unit tests prove `redact()` works;
+this proves nothing tried to log a secret in the first place.
+
 ## Evaluating retrieval
 
 Retrieval quality is a number, not an impression:
@@ -401,6 +422,7 @@ src/
     ├── pricing.ts            # token rates + integer-nanodollar cost — no imports
     ├── context.ts            # token estimation, window, cost projection — no imports
     ├── claims.ts             # the verification debt as data + pure evaluators
+    ├── ndjson.ts             # the ONE NDJSON reader — chat, ask, e2e all share it
     ├── usage.ts              # "server-only": the spend ledger
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
@@ -409,7 +431,7 @@ src/
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
-scripts/                      # `pnpm eval` · `pnpm cost` · `pnpm verify`
+scripts/                      # `pnpm eval` · `pnpm cost` · `pnpm verify` · `pnpm e2e`
 tests/                        # `pnpm test` — 471 assertions, no framework
 .data/forge.db                # SQLite — users, transcripts, sessions, usage ledger
 ```
@@ -479,6 +501,7 @@ is the deliverable; the code is the apparatus.
 | 018 | [Context Management](experiments/018-context-management/README.md) | 🟢 **Projection verified** — prefix caching 53% cheaper at 20 turns, lossless; a real cache hit still blocked |
 | 019 | [Agent-Loop Context](experiments/019-agent-context/README.md) | 🟢 **Projection verified** — pruning 60% cheaper; **pruning + caching is worse than either alone** |
 | 020 | [Verification Debt](experiments/020-verification-debt/README.md) | 🟢 **Harness verified** — 9 fixture-tested evaluators; the debt is now redeemable in one command |
+| 021 | [End-to-End](experiments/021-end-to-end/README.md) | 🟢 **Verified** — first e2e suite, 32 assertions; `pnpm verify` now 9/9; a process leak found and fixed |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
