@@ -45,6 +45,28 @@ jobs:
           path: node_modules/.pnpm/@xenova+transformers@*/node_modules/@xenova/transformers/.cache
           key: xenova-model-${{ hashFiles('pnpm-lock.yaml') }}
 
+      # Experiment 025. The EMBEDDING cache — distinct from the model download
+      # above. 024 measured a cold index build at 196.8s; without this, CI pays
+      # it on every single run.
+      #
+      # `restore-keys` matters more here than in most caches, and for a reason
+      # specific to how this cache is keyed. Vectors are content-addressed by a
+      # hash of their TEXT, so a stale cache is not useless — a PR that edits one
+      # experiment README gets ~270 hits and one miss. An exact-key-only cache
+      # would throw all of that away on every documentation change, which is most
+      # commits in this repository.
+      - name: Cache notebook embeddings
+        uses: actions/cache@v4
+        with:
+          path: .data/embeddings.db
+          key: embeddings-${{ hashFiles('experiments/**/README.md', 'docs/ARCHITECTURE.md', 'docs/GLOSSARY.md', 'src/lib/chunk.ts', 'src/lib/embeddings.ts') }}
+          restore-keys: |
+            embeddings-
+
+      # Populate whatever the cache did not cover, so the gate below never pays
+      # for it inside a test. Idempotent: ~70ms when nothing changed.
+      - run: pnpm warm
+
       # One command, the same one a developer runs. If this workflow and the
       # local gate can disagree, the local gate stops being trusted.
       - run: pnpm check

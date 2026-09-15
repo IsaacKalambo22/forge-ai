@@ -38,7 +38,15 @@ function getExtractor() {
  * in the call that size. Batching bounds the peak and costs nothing in quality;
  * each text is embedded independently either way.
  */
-const BATCH_SIZE = 16;
+const BATCH_SIZE = (() => {
+  // Overridable so the batched and unbatched paths can be measured back to back
+  // under the same conditions. Experiment 025 needed that: 024's speedup claim
+  // compared two numbers taken minutes apart on a loaded machine, which is not
+  // an A/B test. `0` means "one call with everything", the original behaviour.
+  const raw = Number(process.env.FORGE_EMBED_BATCH);
+  if (Number.isInteger(raw) && raw >= 0) return raw;
+  return 16;
+})();
 
 export async function embed(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
@@ -46,8 +54,10 @@ export async function embed(texts: string[]): Promise<number[][]> {
   const extractor = await getExtractor();
   const vectors: number[][] = [];
 
-  for (let start = 0; start < texts.length; start += BATCH_SIZE) {
-    const batch = texts.slice(start, start + BATCH_SIZE);
+  const step = BATCH_SIZE === 0 ? texts.length : BATCH_SIZE;
+
+  for (let start = 0; start < texts.length; start += step) {
+    const batch = texts.slice(start, start + step);
     const output = await extractor(batch, { pooling: "mean", normalize: true });
 
     // The result is one flat Float32Array for the batch; slice it per text.

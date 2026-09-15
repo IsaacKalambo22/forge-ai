@@ -1,9 +1,10 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
-import { db } from "./db";
 import { EMBEDDING_DIMENSIONS } from "./embeddings";
 
 // Experiment 024. Embedding is deterministic: the same text through the same
@@ -147,9 +148,45 @@ export async function embedCached(
 }
 
 // ---------------------------------------------------------------------------
+// Its own database file. Experiment 025.
+//
+// This is DERIVED data: deletable, rebuildable, and identical for everyone
+// running the same corpus. Application state — users, transcripts, the usage
+// ledger — is none of those things. Keeping them in one file meant CI could not
+// cache the vectors without also caching a user table.
+//
+// The schema is one table, so it needs no migration machinery; CREATE TABLE IF
+// NOT EXISTS is the whole of it. If that ever stops being true, this file has
+// grown into something that deserves migrations of its own.
+// ---------------------------------------------------------------------------
+
+const CACHE_PATH = process.env.FORGE_EMBED_DB_PATH ?? ".data/embeddings.db";
+
+let cacheDb: DatabaseSync | null = null;
+
+export function embeddingDb(): DatabaseSync {
+  if (cacheDb !== null) return cacheDb;
+
+  if (CACHE_PATH !== ":memory:") mkdirSync(dirname(CACHE_PATH), { recursive: true });
+  const database = new DatabaseSync(CACHE_PATH);
+  if (CACHE_PATH !== ":memory:") database.exec("PRAGMA journal_mode = WAL");
+  database.exec(`CREATE TABLE IF NOT EXISTS embeddings (
+    hash       TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    dims       INTEGER NOT NULL,
+    vector     BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (hash, model)
+  )`);
+
+  cacheDb = database;
+  return cacheDb;
+}
+
+export const EMBED_CACHE_PATH = CACHE_PATH;
 
 export const embedCache = {
   get: (texts: string[], model: string, embedMissing: (t: string[]) => Promise<number[][]>) =>
-    embedCached(db(), texts, model, embedMissing, Date.now()),
-  count: (model: string) => countCached(db(), model),
+    embedCached(embeddingDb(), texts, model, embedMissing, Date.now()),
+  count: (model: string) => countCached(embeddingDb(), model),
 };

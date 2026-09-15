@@ -149,6 +149,25 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (hash, model)
   );
   `,
+
+  // 6 — move the embedding cache OUT of this database.
+  //
+  // Experiment 025. Migration 5 put it here because 015 had already built this
+  // file. That was a mistake of category, not of schema: this database holds
+  // durable APPLICATION STATE — users, transcripts, sessions, a financial
+  // ledger. The embedding cache is DERIVED DATA. It can be deleted at any time
+  // and rebuilt, it is identical for everyone running the same corpus, and it
+  // is the one thing here that is safe to ship, share or cache in CI.
+  //
+  // Mixing the two meant CI could not cache the vectors without also caching a
+  // user table, and nothing could be safely deleted to reclaim space.
+  //
+  // Dropped rather than left in place: an unused table is a trap for the next
+  // person, who will reasonably assume something writes to it. Migration 5 is
+  // left exactly as it shipped — the rule is append, never edit.
+  `
+  DROP TABLE IF EXISTS embeddings;
+  `,
 ];
 
 /**

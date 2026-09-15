@@ -1,6 +1,9 @@
 import { guard, budgetStatus } from "@/lib/guard";
 import { currentSnapshot } from "@/lib/telemetry";
 import { usage } from "@/lib/usage";
+import { indexReady } from "@/lib/knowledge";
+import { embedCache, EMBED_CACHE_PATH } from "@/lib/embedcache";
+import { EMBEDDING_MODEL } from "@/lib/embeddings";
 import { observe } from "@/lib/observe";
 
 /**
@@ -26,6 +29,15 @@ export async function GET(request: Request) {
       ...currentSnapshot(),
       budget: budgetStatus(),
       spend_24h: usage.byRoute(),
+      // Experiment 025. 014 reported how fast and how often, 017 how much.
+      // Whether the thing can answer at all belongs beside them — it is the
+      // difference between "slow" and "still starting", which a latency number
+      // alone cannot express.
+      index: {
+        ready: indexReady(),
+        cached_vectors: embedCache.count(EMBEDDING_MODEL),
+        cache_path: EMBED_CACHE_PATH,
+      },
     }, {
       // Never cache a measurement; a cached one is a lie with a timestamp.
       headers: { "Cache-Control": "no-store" },

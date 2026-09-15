@@ -9,6 +9,20 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+
+/** How many vectors the shared cache holds — 0 on a first-ever run. */
+function cachedVectorCount(): number {
+  const path = process.env.FORGE_EMBED_DB_PATH ?? ".data/embeddings.db";
+  if (!existsSync(path)) return 0;
+  const db = new DatabaseSync(path);
+  try {
+    return (db.prepare("SELECT COUNT(*) AS n FROM embeddings").get() as { n: number }).n;
+  } catch {
+    return 0;
+  } finally {
+    db.close();
+  }
+}
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -32,7 +46,7 @@ async function somethingIsListening(port: number): Promise<boolean> {
 export type Server = {
   url: string;
   secret: string;
-  /** Cached embeddings copied in from the dev database, if any. */
+  /** Vectors in the shared embedding cache this server will read. */
   seededEmbeddings: number;
   stop(): void;
   /** Everything the server has written to stdout/stderr. */
@@ -47,56 +61,22 @@ export type Server = {
  * database is one nobody runs twice.
  */
 /**
- * Copies cached embeddings from the development database into the server's.
+ * Experiment 025 removed a function that used to live here.
  *
- * Experiment 024. The test server runs on a throwaway database, which means an
- * empty embedding cache, which since 024 means /api/ask answers 503 while the
- * index builds — around three minutes. That would make the notebook-backed
- * claims ungatherable.
+ * It copied cached embeddings row-by-row from the dev database into the test
+ * server's, because the two were the same file and the test server needed a
+ * throwaway one. That required creating the table before the server had
+ * migrated (which broke every request), then forcing the database into
+ * existence first (which it had not been).
  *
- * Seeding works because the cache is CONTENT-ADDRESSED: a vector is keyed by a
- * hash of its text and the model that produced it, so it is valid in any
- * database. That portability is a property of the design, not a test
- * convenience.
+ * Separating the embedding cache into its own file made all of that
+ * unnecessary: the test server keeps a throwaway database for APPLICATION state
+ * and simply POINTS AT the shared cache for derived data. Nothing is copied,
+ * because nothing needs to be — a content-addressed cache is safe to share, and
+ * SQLite's WAL mode handles the concurrent readers.
  *
- * MUST run AFTER the server has booted and migrated. The first version ran
- * before, creating the `embeddings` table itself — and migration 5 is a plain
- * `CREATE TABLE`, so it then failed against the existing table, the whole
- * migration chain aborted, and every request returned 500. Letting the server
- * own its schema removes the duplicate definition entirely.
+ * Two bugs deleted rather than fixed.
  */
-function seedEmbeddingCache(target: string): number {
-  const source = process.env.FORGE_DB_PATH ?? ".data/forge.db";
-  if (!existsSync(source) || !existsSync(target)) return 0;
-
-  const from = new DatabaseSync(source);
-  let rows: { hash: string; model: string; dims: number; vector: Uint8Array; created_at: number }[];
-  try {
-    rows = from.prepare("SELECT hash, model, dims, vector, created_at FROM embeddings").all() as
-      typeof rows;
-  } catch {
-    return 0; // an older database without the table
-  } finally {
-    from.close();
-  }
-  if (rows.length === 0) return 0;
-
-  const to = new DatabaseSync(target);
-  try {
-    const insert = to.prepare(
-      "INSERT INTO embeddings (hash, model, dims, vector, created_at) VALUES (?,?,?,?,?) " +
-        "ON CONFLICT(hash, model) DO NOTHING",
-    );
-    to.exec("BEGIN");
-    for (const r of rows) insert.run(r.hash, r.model, r.dims, r.vector, r.created_at);
-    to.exec("COMMIT");
-  } catch {
-    return 0; // the server has not migrated yet — not fatal, just a slow run
-  } finally {
-    to.close();
-  }
-  return rows.length;
-}
 
 export async function startServer(port = randomPort()): Promise<Server> {
   const dir = mkdtempSync(join(tmpdir(), "forge-e2e-"));
@@ -119,6 +99,9 @@ export async function startServer(port = randomPort()): Promise<Server> {
     env: {
       ...process.env,
       FORGE_DB_PATH: join(dir, "e2e.db"),
+      // Application state is throwaway; the embedding cache is shared, because
+      // it is derived and identical for everyone running this corpus.
+      FORGE_EMBED_DB_PATH: process.env.FORGE_EMBED_DB_PATH ?? ".data/embeddings.db",
       APP_SECRET: secret,
       // Budgets raised so a run cannot trip the Experiment 017 ceiling.
       FORGE_DAILY_BUDGET_USD: "1000",
@@ -154,24 +137,10 @@ export async function startServer(port = randomPort()): Promise<Server> {
     }
   }
 
-  // Force the database into existence before seeding.
-  //
-  // The readiness probe hits /api/metrics, which `guard()` rejects with 401
-  // BEFORE touching the database — so at this point the file does not exist and
-  // seeding silently copied nothing. A failed login does reach `users`, which
-  // opens the connection and runs every migration.
-  await fetch(`${url}/api/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "nobody", password: "not-a-real-password" }),
-  }).catch(() => {});
-
-  const seeded = seedEmbeddingCache(join(dir, "e2e.db"));
-
   return {
     url,
     secret,
-    seededEmbeddings: seeded,
+    seededEmbeddings: cachedVectorCount(),
     /**
      * Kills the whole process GROUP, not just the child.
      *
