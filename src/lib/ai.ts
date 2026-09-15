@@ -96,6 +96,48 @@ export async function analyzeConversation(messages: ChatMessage[]) {
 //
 // An async generator: it yields events as they happen, so the route can write
 // them straight to the NDJSON stream without buffering the whole run.
+// Experiment 018. Marks the stable prefix of a conversation as cacheable.
+//
+// WHY THE BREAKPOINT GOES WHERE IT DOES. Caching is a PREFIX match: any byte
+// change anywhere before the breakpoint invalidates everything after it. The
+// newest user message is different on every request by definition, so it must
+// fall AFTER the breakpoint — putting it inside would invalidate the cache on
+// the very request meant to use it, and the feature would silently do nothing
+// but add the 1.25x write premium.
+//
+// So: breakpoint on the last message of the prior history, volatile content
+// after it.
+//
+// WHY THIS IS WORTH DOING HERE, measured in `pnpm cost`: at MAX_TURNS = 20 it
+// is 53% cheaper than resending full history, and it forgets nothing. A
+// sliding window is cheaper only past turn 25, which this project cannot reach.
+//
+// HONEST LIMITATION: the minimum cacheable prefix is model-dependent (roughly
+// 1024-4096 tokens). A short conversation is below it and will silently not
+// cache — no error, no warning, just no `cache_read_input_tokens`. That is why
+// the first turns in the projection show caching costing slightly MORE.
+export function withCachedPrefix(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+  // Nothing to cache until there is a prior exchange to re-read.
+  if (messages.length < 3) return messages;
+
+  const prefix = messages.slice(0, -1);
+  const newest = messages[messages.length - 1];
+  const last = prefix[prefix.length - 1];
+
+  // `cache_control` attaches to a content BLOCK, so a string body has to become
+  // a one-element block array first.
+  const blocks: Anthropic.ContentBlockParam[] =
+    typeof last.content === "string"
+      ? [{ type: "text", text: last.content }]
+      : [...last.content];
+
+  const marked = blocks.map((block, i) =>
+    i === blocks.length - 1 ? { ...block, cache_control: { type: "ephemeral" as const } } : block,
+  );
+
+  return [...prefix.slice(0, -1), { ...last, content: marked }, newest];
+}
+
 export async function* runToolLoop(
   messages: ChatMessage[],
   persona: PersonaId = "default",
@@ -111,7 +153,9 @@ export async function* runToolLoop(
       max_tokens: 1024,
       system: PROMPTS[persona],
       tools: TOOL_DEFINITIONS,
-      messages: working,
+      // Experiment 018: the history is re-sent every turn and billed every
+      // time. Marking the stable part cacheable makes the re-read cost 0.1x.
+      messages: withCachedPrefix(working),
     });
 
     for await (const event of stream) {

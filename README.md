@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–017 complete.** `pnpm test` → 419/419. `pnpm lint` and
+**Experiments 001–018 complete.** `pnpm test` → 471/471. `pnpm lint` and
 `npx tsc --noEmit` → clean.
 
-Currently building: **Experiment 018 — Cost-Aware Context Management.**
+Currently building: **Experiment 019 — The Agent Loop's Own Context.**
 
 ### Completed
 
@@ -26,19 +26,20 @@ Currently building: **Experiment 018 — Cost-Aware Context Management.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 419 assertions, no framework
+- [x] Test suite — 471 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
 - [x] Identity & authorization — real users, scrypt passwords, owned conversations
 - [x] Cost accounting — integer-nanodollar ledger, budgets enforced in dollars
+- [x] Context management — prefix caching, 53% cheaper at `MAX_TURNS`, lossless
 
 ### Currently building
 
-- [ ] **018 — Cost-Aware Context Management.** 003 measured that history grows
-      quadratically in tokens billed; the only response so far is `MAX_TURNS = 20`,
-      a cliff rather than a strategy. Now that cost is a readable number, prompt
-      caching / trimming / summarising become comparable rather than a matter of taste.
+- [ ] **019 — The Agent Loop's Own Context.** 018 fixed the quadratic *between*
+      requests and left it untouched *inside* one: the agent loop re-sends a growing
+      working history up to `MAX_STEPS = 6` times per user turn, at full price, with
+      no breakpoint.
 
 ### Blocked — no Anthropic API credential
 
@@ -55,6 +56,8 @@ separated from generation.
 ### Deferred
 
 - [ ] Usage recording on ask / agent / analyze — only `/api/chat` records today
+- [ ] Prefix caching on ask / agent; caching the system prompt and tool definitions
+- [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
@@ -233,6 +236,32 @@ Rates are Anthropic first-party, verified 2026-09-15: `claude-opus-5` at $5.00/M
 in, $25.00/MTok out — **output is 5× input** — with cache reads at 0.1× and writes at
 1.25×. See [Experiment 017](experiments/017-cost-accounting/README.md).
 
+## Context cost
+
+History is resent on every turn and billed every time — Experiment 003 measured the
+growth as quadratic. `pnpm cost` projects the alternatives:
+
+```bash
+pnpm cost
+```
+
+```text
+   turns        full      window      cached   cheapest (lossless only)
+      20     $0.7000     $0.3387     $0.3271   cached ← MAX_TURNS
+
+    today (full history)  $0.7000  per conversation
+    with prefix caching   $0.3271
+    saving                $0.3729  (53%), losing nothing
+```
+
+Prefix caching is used, not a sliding window: at `MAX_TURNS = 20` it is **cheaper and
+lossless**, which contradicted the "cheaper but worse" tradeoff I expected. A window
+only wins past turn ~25 — so if the cap is ever raised, re-run `pnpm cost` and revisit.
+
+Note also that **output is 5× input and no context strategy touches it**: at 20 turns
+the input side is 71% of the bill. See
+[Experiment 018](experiments/018-context-management/README.md).
+
 ## Observability
 
 ```bash
@@ -335,6 +364,7 @@ src/
     ├── revocation.ts         # "server-only": session denylist (hashes, not tokens)
     ├── users.ts              # "server-only": scrypt passwords, timing-equalised auth
     ├── pricing.ts            # token rates + integer-nanodollar cost — no imports
+    ├── context.ts            # token estimation, window, cost projection — no imports
     ├── usage.ts              # "server-only": the spend ledger
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
@@ -343,8 +373,8 @@ src/
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
-scripts/                      # `pnpm eval` — the retrieval benchmark
-tests/                        # `pnpm test` — 419 assertions, no framework
+scripts/                      # `pnpm eval` · `pnpm cost` — benchmark and projection
+tests/                        # `pnpm test` — 471 assertions, no framework
 .data/forge.db                # SQLite — users, transcripts, sessions, usage ledger
 ```
 
@@ -410,6 +440,7 @@ is the deliverable; the code is the apparatus.
 | 015 | [Persistence](experiments/015-persistence/README.md) | 🟢 **Verified end-to-end** — SQLite; **Exp. 003 forgery and Exp. 012 revocation both closed** |
 | 016 | [Identity & Authorization](experiments/016-identity-and-authz/README.md) | 🟢 **Verified end-to-end** — cross-user access returns 404, byte-identical to nonexistent |
 | 017 | [Cost & Token Accounting](experiments/017-cost-accounting/README.md) | 🟢 **Enforcement verified** — budgets in dollars, integer-nanodollar ledger; live `usage` still blocked |
+| 018 | [Context Management](experiments/018-context-management/README.md) | 🟢 **Projection verified** — prefix caching 53% cheaper at 20 turns, lossless; a real cache hit still blocked |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

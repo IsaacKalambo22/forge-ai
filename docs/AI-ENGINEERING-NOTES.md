@@ -1672,7 +1672,117 @@ with an actual invoice, they are arithmetic over self-reported numbers.
 
 ---
 
-# 38. The ForgeAI Learning Path
+# 38. Context Management
+
+Built in Experiment 018. The companion to section 37 — 37 measures cost, this spends
+it better.
+
+### The quadratic
+
+The Messages API is stateless, so turn *k* resends every prior turn. Total input over
+*N* turns grows with *N²*.
+
+```text
+10 → 20 turns   4.00x the input tokens
+20 → 40 turns   4.00x again
+10 → 40 turns   16.0x
+```
+
+**Doubling the conversation quadruples the input bill.** A turn cap (`MAX_TURNS`)
+does not reduce this at all below the cap — it is a cliff, not a strategy.
+
+### The three options, and what each actually costs
+
+```text
+full history   everything, every turn, at 1x         lossless, quadratic
+sliding window last N messages at 1x                 FLAT, and it FORGETS
+prefix caching stable prefix at 0.1x, new msg at 1x  lossless, grows slowly
+```
+
+**A window is not compression — it is forgetting**, and the user is not told. A fact
+established in turn 2 is gone by turn 30 and the model proceeds confidently without
+it. Cost numbers for a window are therefore not comparable to the other two.
+
+### The finding that contradicted my prior
+
+I assumed the window would be cheapest — cheaper and worse, the classic tradeoff —
+and wrote it as a test. It failed:
+
+```text
+20 turns:  cached $0.3271   vs   window-6 $0.3387
+           forgets nothing        drops 289 turn-sends
+```
+
+**At this scale the cheaper option is also the lossless one. There was no tradeoff to
+make.** The error was reasoning about tokens *sent* rather than tokens *billed*: six
+turns at 1× costs more than twenty turns at 0.1×, and intuition counting messages
+cannot see that.
+
+### The ranking depends on length, and the crossover is computable
+
+A cached prefix *grows*, so its read cost grows. A window is flat. So:
+
+```text
+caching cheaper    up to ~turn 25
+window cheaper     beyond it
+```
+
+Record a decision like this **with its expiry condition** — "if `MAX_TURNS` is raised
+past 25, re-measure" — or a future reader inherits the conclusion without the
+condition that made it true.
+
+Watch for more than one crossing. Taking the *first* turn where the window wins gives
+turn 2 (caching has paid a write premium with nothing yet to read back) and justifies
+the opposite decision. The number that matters is the **last** crossing.
+
+### Where the cache breakpoint goes
+
+Caching is a **prefix match**: any byte change before the breakpoint invalidates
+everything after it.
+
+```text
+[ ...prior history... ][BREAKPOINT][ newest user message ]
+                                     ↑ different every request
+```
+
+Put the newest message *inside* the cached prefix and it invalidates the cache on the
+very request meant to read it — the feature then silently does nothing except add the
+1.25× write premium. No error, no warning, a larger bill.
+
+**A silently-never-hitting cache is the failure mode to watch for.** Check
+`usage.cache_read_input_tokens > 0`; if it is always zero, something in the prefix is
+changing.
+
+Also silent: the **minimum cacheable prefix** is model-dependent (~1024–4096 tokens).
+A short conversation is below it and will not cache at all.
+
+### Context management is an input-side lever only
+
+```text
+input   71% of the bill at 20 turns   ← the only part any strategy here touches
+output  29%, billed at 5x             ← untouched by trimming, caching or windowing
+```
+
+Worth knowing before optimising: if a workload is output-heavy, none of this helps and
+the lever is `max_tokens`, terseness, or effort.
+
+### Estimation is not measurement
+
+Counting tokens honestly needs the provider's `count_tokens` endpoint. A
+chars/4 heuristic is fine for **projection and display** and must never reach the
+ledger — billing uses the `usage` the API returns.
+
+**An estimate that leaks into an invoice is a lie with a decimal point.**
+
+### The value of an instrument is that it can contradict you
+
+The measurement above existed only because Experiment 017 made cost readable. It then
+immediately disproved the thing I was confident enough to write as a test. An
+instrument that only ever confirms you is not being read.
+
+---
+
+# 39. The ForgeAI Learning Path
 
 The planned progression is:
 
@@ -1712,7 +1822,7 @@ What did I learn?
 
 ---
 
-# 39. My Engineering Philosophy
+# 40. My Engineering Philosophy
 
 ForgeAI is not supposed to become another tutorial project.
 
@@ -1738,7 +1848,7 @@ The goal is:
 
 ---
 
-# 40. Personal Career Direction
+# 41. Personal Career Direction
 
 My goal is to grow beyond simply implementing assigned software projects.
 
@@ -1784,7 +1894,7 @@ Areas I want to develop deeply:
 
 ---
 
-# 41. Rule for Learning New Technologies
+# 42. Rule for Learning New Technologies
 
 When encountering a new technical term, ask:
 
@@ -1822,12 +1932,12 @@ Understand the trade-offs.
 
 ---
 
-# 42. Current ForgeAI Status
+# 43. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 017.**
+**Last updated: 2026-09-15, after Experiment 018.**
 
-Experiments 001–017 are built, documented and tested. `pnpm test` runs 419 assertions
-across 20 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
+Experiments 001–018 are built, documented and tested. `pnpm test` runs 471 assertions
+across 22 files and passes. `npx tsc --noEmit` and `pnpm lint` are clean.
 
 Stack:
 
@@ -1852,8 +1962,9 @@ src/app/
   api/login     session issue / revoke       (012)
   api/metrics   latency percentiles          (014)
 
-src/lib/        30 modules — see README for the trust annotations
-tests/          419 assertions, no framework
+src/lib/        31 modules — see README for the trust annotations
+tests/          471 assertions, no framework
+scripts/        pnpm eval (013) · pnpm cost (018)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
 ```
@@ -1870,7 +1981,7 @@ model call is **built and type-checked but not observed**. See section 41.
 
 ---
 
-# 43. Current Architecture
+# 44. Current Architecture
 
 ```text
 Browser  ·  chat.tsx / ask.tsx / login.tsx      ← untrusted: the user controls this
@@ -1897,7 +2008,7 @@ limit and the bill can live.
 
 ---
 
-# 44. What Is Verified, and What Is Not
+# 45. What Is Verified, and What Is Not
 
 This distinction matters more than any single lesson here. Three categories, per the
 operating rule — never write "working" because the code looks correct.
@@ -1924,7 +2035,9 @@ A denied request leaves the target transcript unchanged (016)
 Login reveals nothing about which usernames exist, in message or timing (016)
 A budget in dollars refuses paid work and still allows free routes (017)
 Integer nanodollars sum exactly where floats drift by 1.4e-14 (017)
-pnpm test 419/419
+History growth is quadratic: 4x the input per doubling of turns (018)
+Prefix caching is 53% cheaper than full history at 20 turns, losslessly (018)
+pnpm test 471/471
 ```
 
 **Established engineering knowledge — true in general, relied on here:**
@@ -1941,6 +2054,7 @@ Unguessable is not owned: authentication is not authorization
 A password needs a SLOW hash; a token needs a fast one. Opposite problems.
 Money is an integer, in a unit smaller than the smallest rate you multiply by
 Output tokens cost 5x input; a cache write only pays off on the second read
+Caching is a prefix match — volatile content must fall AFTER the breakpoint
 Anything an attacker can measure is an output — timing and error choice included
 ```
 
@@ -1954,6 +2068,7 @@ Whether the model conforms to the analysis schema       (005)
 Whether the tool loop ever executes                     (006)
 Whether the agent loop ever executes                    (009)
 Generation quality on retrieved passages                (008)
+A real cache hit — a cache that never hits costs 1.25x and looks fine (018)
 A ledger row written from a LIVE usage object — the arithmetic, schema,
 aggregation and enforcement are all verified; only the join to a real
 response is not (017)

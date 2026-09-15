@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/run.mts",
-    "eval": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/eval-retrieval.mts"
+    "eval": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/eval-retrieval.mts",
+    "cost": "node --conditions=react-server --import ./tests/resolver.mjs --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/project-cost.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
