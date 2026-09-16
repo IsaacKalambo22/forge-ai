@@ -10,13 +10,14 @@ at a time.
 
 ## Status
 
-**Experiments 001–026 complete, 027–029 in progress.** `pnpm check` → all gates pass locally:
-types · lint · 710 unit · 39 end-to-end · retrieval benchmark.
+**Experiments 001–028 complete, 029 committed and not yet pushed.**
+`pnpm check` → all gates pass locally: types · lint · 710 unit · 39 end-to-end ·
+retrieval benchmark.
 
-**CI is green.** Experiment 026's fix was confirmed on the push that followed it.
-Experiment 027 closes the gap that let three red runs go unnoticed before anyone
-looked: a badge above, and `pnpm ci-status` reads the same result from the terminal —
-its own confirmation is still one push away.
+**CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
+was confirmed on the push that followed it; Experiment 027 closed the gap that let
+three red runs go unnoticed — a badge above, and `pnpm ci-status`, which has now
+confirmed itself and Experiment 028 both green on GitHub.
 
 ### Completed
 
@@ -51,12 +52,12 @@ its own confirmation is still one push away.
       of four routes, agent worst of all (one run, several upstream calls)
 - [x] Per-user rate limiting — the limiter keyed on IP though identity was already
       known; now keyed on user id wherever `guard()` has one
+- [x] CI result visibility — `pnpm ci-status` + a README badge; confirmed green
+      against its own push (the commit that added it)
 
 ### Currently building
 
-- [ ] **CI result visibility.** `pnpm ci-status` + a README badge, so "CI exists" and
-      "CI is green" stop looking identical from a terminal. Verified locally against
-      the live check run; not yet confirmed by its own push.
+Nothing — see Deferred below for the queue.
 
 ### Blocked — no Anthropic API credential
 
@@ -612,8 +613,8 @@ is the deliverable; the code is the apparatus.
 | 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — caching: ~40ms warm vs ~56s cold; batching: **~18×** and half the RSS (first attempt measured 2.6× from noise) |
 | 025 | [Warm Index](experiments/025-warm-index/README.md) | 🟢 **Verified** — boot warm-up; derived data split from app state, deleting two bugs |
 | 026 | [CI Was Never Green](experiments/026-ci-was-never-green/README.md) | 🟢 **Fixed and confirmed** — green on the push that followed |
-| 027 | [CI Result Visibility](experiments/027-ci-visibility/README.md) | 🟡 **Built, verified locally** — `pnpm ci-status` + badge; not yet confirmed by its own push |
-| 028 | [Usage Recording on ask / agent / analyze](experiments/028-usage-everywhere/README.md) | 🟡 **Wired, type-checked** — observation blocked on the same missing credential as everything downstream of a live call |
+| 027 | [CI Result Visibility](experiments/027-ci-visibility/README.md) | 🟢 **Confirmed** — `pnpm ci-status` + badge, green against the push that added them |
+| 028 | [Usage Recording on ask / agent / analyze](experiments/028-usage-everywhere/README.md) | 🟡 **Wired, CI-green** — the wiring compiled, linted and passed on GitHub; observing a real recorded row still needs the missing credential |
 | 029 | [Per-User Rate Limiting](experiments/029-per-user-rate-limit/README.md) | 🟢 **Verified** — 64 new unit assertions; identity, not IP, now bounds the same user |
 
 Beyond the foundation: prompt design → context management → persistence → auth →

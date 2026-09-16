@@ -73,17 +73,34 @@ side to confirm they now match.
   worth checking that `ask` and `agent` costs land in the range 017's pricing model
   predicts, not just that a row appears.
 
+## Confirmation
+
+Pushed as commit `9284199`. `pnpm ci-status` — built one experiment later but already
+usable against this one — confirms the wiring is green on a fresh clone, the same
+guarantee every other gate in this project carries:
+
+```text
+$ pnpm ci-status
+forge-ai — ci-status  (IsaacKalambo22/forge-ai @ 9284199)
+
+  ✓ check      success  https://github.com/IsaacKalambo22/forge-ai/actions/runs/...
+```
+
+That confirms the code is correct on a machine that has never run it before — not
+that it has ever recorded a real response. Those are different claims, and only one
+of them is answered.
+
 ## Status
 
 | Piece | State |
 | --- | --- |
-| `/api/ask` records usage | ✅ Wired, type-checked — unobserved against a live call |
-| `/api/agent` records usage, per upstream call | ✅ Wired, type-checked — unobserved against a live call |
-| `/api/analyze` records usage | ✅ Wired, type-checked — unobserved against a live call |
-| `pnpm check` | ✅ All gates pass |
+| `/api/ask` records usage | ✅ Wired, type-checked, CI-green — unobserved against a live call |
+| `/api/agent` records usage, per upstream call | ✅ Wired, type-checked, CI-green — unobserved against a live call |
+| `/api/analyze` records usage | ✅ Wired, type-checked, CI-green — unobserved against a live call |
+| `pnpm check` | ✅ All gates pass, locally and on GitHub |
 
 ## Next Step
 
 Same as everything downstream of a live model call: an `ANTHROPIC_API_KEY` turns
-"wired correctly" into "confirmed." Until then, `pnpm ci-status` (027) is at least
-answerable without one.
+"wired correctly" into "confirmed." Until then, `pnpm ci-status` (027) answers the
+question this experiment *can* answer without one.

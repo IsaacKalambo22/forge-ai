@@ -83,8 +83,20 @@ metadata plus a public HTTP call.
   GitHub is still creating the check run. `ci-status` reports that as "not found"
   (exit 2), not failure — worth remembering if it's ever scripted into something
   stricter than a human glance.
-- **This experiment's own change is unconfirmed by the mechanism it built**, in the
-  same way 026's was — verified locally, real answer after the next push.
+
+## Confirmation
+
+Pushed as commit `6834579`. Its own check run came back green — the first time this
+project's visibility gap has been closed by the exact mechanism built to close it:
+
+```text
+$ pnpm ci-status
+forge-ai — ci-status  (IsaacKalambo22/forge-ai @ 6834579)
+
+  ✓ check      success  https://github.com/IsaacKalambo22/forge-ai/actions/runs/...
+```
+
+Unlike 026, that answer took one local command, not a trip to a web page.
 
 ## Status
 
@@ -93,9 +105,9 @@ metadata plus a public HTTP call.
 | `pnpm ci-status` | ✅ Verified against the live check run for 69e20d2 |
 | README badge | ✅ Added — renders from GitHub's own badge endpoint |
 | 026's fix | ✅ **Confirmed green** — answered by this experiment's first `ci-status` run |
-| This experiment's own change, on GitHub | ⬜ Unknown until the next push |
+| This experiment's own change, on GitHub | ✅ **Confirmed green** — commit `6834579` |
 
 ## Next Step
 
-**Push, and run `pnpm ci-status`.** Unlike 026, that is no longer an act of faith in a
-web page — it is now one local command.
+Closed. `pnpm ci-status` and the badge are the standing answer to "is CI green" from
+here on — no further action needed for this experiment.
