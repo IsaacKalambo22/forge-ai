@@ -8,10 +8,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–024 complete.** `pnpm check` → all gates pass:
-types · lint · 630 unit · 39 end-to-end · retrieval benchmark.
+**Experiments 001–026 complete.** `pnpm check` → all gates pass locally:
+types · lint · 646 unit · 39 end-to-end · retrieval benchmark.
 
-Currently building: **Experiment 025 — Warming the Index Before Anyone Asks.**
+**CI had never passed** until Experiment 026 found why — confirmation awaits the next push.
 
 ### Completed
 
@@ -26,7 +26,7 @@ Currently building: **Experiment 025 — Warming the Index Before Anyone Asks.**
 - [x] Semantic search + RAG retrieval
 - [x] Prompt-injection defence — nonce-fenced passages
 - [x] Session auth, rate limiting, daily budget
-- [x] Test suite — 630 assertions, no framework
+- [x] Test suite — 646 assertions, no framework
 - [x] Evaluation — `pnpm eval`, a scored retrieval benchmark with a baseline
 - [x] Observability — structured logs, redaction, correlation ids, `GET /api/metrics`
 - [x] Persistence — SQLite transcripts and session revocation, zero new dependencies
@@ -38,14 +38,14 @@ Currently building: **Experiment 025 — Warming the Index Before Anyone Asks.**
 - [x] End-to-end suite — `pnpm e2e`, 32 assertions through the front door
 - [x] Continuous verification — `pnpm check`, a pre-push hook, and CI
 - [x] Injection tested against the real corpus — which genuinely contains payloads
-- [x] Affordable index — cached embeddings, tens of seconds → ~40ms on a warm build
+- [x] Affordable index — cached embeddings; batching ~18× faster
+- [x] Warm-up at boot; embedding cache split from application state
+- [x] CI root cause found — generated types; plus a cached-failure bug in three loaders
 
 ### Currently building
 
-- [ ] **025 — Warming the Index Before Anyone Asks.** 024 made the repeat cost nearly
-      free and left the first one at tens of seconds — paid by whoever arrives first after a
-      deploy, and by CI on every run, because the workflow caches `node_modules` but
-      not the 407 KB embedding cache.
+- [ ] **Confirm CI is green, and make its result visible.** 022's workflow ran three
+      times and failed three times, and nothing in the local workflow noticed.
 
 ### Blocked — no Anthropic API credential
 
@@ -499,7 +499,8 @@ src/
     ├── context.ts            # token estimation, window, cost projection — no imports
     ├── claims.ts             # the verification debt as data + pure evaluators
     ├── ndjson.ts             # the ONE NDJSON reader — chat, ask, e2e all share it
-    ├── embedcache.ts         # "server-only": content-addressed vector cache
+    ├── embedcache.ts         # "server-only": content-addressed vector cache (own DB)
+    ├── once.ts               # share one in-flight load; forget a failed one
     ├── usage.ts              # "server-only": the spend ledger
     ├── embeddings.ts         # "server-only": local embedding model
     ├── search.ts             # "server-only": cached corpus index
@@ -508,9 +509,10 @@ src/
 
 docs/                         # Architecture, glossary, running notes
 experiments/                  # One directory per experiment, each with its own README
-scripts/                      # `pnpm eval` · `pnpm cost` · `pnpm verify` · `pnpm e2e`
+scripts/                      # `pnpm eval` · `cost` · `verify` · `e2e` · `warm` · `check`
 tests/                        # `pnpm test` — 471 assertions, no framework
-.data/forge.db                # SQLite — users, transcripts, sessions, usage, embeddings
+.data/forge.db                # SQLite — users, transcripts, sessions, usage
+.data/embeddings.db           # derived: the embedding cache, safe to delete or share
 ```
 
 ## Architecture
@@ -582,6 +584,8 @@ is the deliverable; the code is the apparatus.
 | 022 | [Continuous Verification](experiments/022-continuous-verification/README.md) | 🟢 **Verified** — `pnpm check` gate (~38s), pre-push hook fires; CI written, not yet run |
 | 023 | [Injection, Beyond the Unit Test](experiments/023-injection-end-to-end/README.md) | 🟢 **Verified** — the corpus really contains payloads; renderer holds. Surfaced an 8.6-min index build |
 | 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — caching: ~40ms warm vs ~56s cold; batching: **~18×** and half the RSS (first attempt measured 2.6× from noise) |
+| 025 | [Warm Index](experiments/025-warm-index/README.md) | 🟢 **Verified** — boot warm-up; derived data split from app state, deleting two bugs |
+| 026 | [CI Was Never Green](experiments/026-ci-was-never-green/README.md) | 🟡 **Root cause found and fixed locally** — green on GitHub still unconfirmed |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

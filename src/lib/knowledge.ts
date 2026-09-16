@@ -8,6 +8,7 @@ import { EMBEDDING_MODEL, embed } from "./embeddings";
 import { embedCache } from "./embedcache";
 import { topK, type Scored } from "./vector";
 import { log } from "./log";
+import { sharedRetryable } from "./once";
 
 export type Source = Chunk & { file: string };
 
@@ -56,38 +57,34 @@ function loadSources(): Source[] {
 
 // Read, chunk and embed once. As in Experiment 007 the PROMISE is cached, so
 // two requests arriving together share a single index build.
-let indexPromise: Promise<{ item: Source; vector: number[] }[]> | null = null;
+// Retried after a failure (Experiment 026) — see once.ts.
+const getIndex = sharedRetryable(async () => {
+  const started = Date.now();
+  const sources = loadSources();
 
-function getIndex() {
-  indexPromise ??= (async () => {
-    const started = Date.now();
-    const sources = loadSources();
+  // Experiment 024. Embedding is deterministic, so a chunk whose text has not
+  // changed does not need re-embedding. Before this, every restart re-embedded
+  // the whole notebook — 256 chunks, 516.6 seconds, measured in 023.
+  const { vectors, stats } = await embedCache.get(
+    sources.map(chunkText),
+    EMBEDDING_MODEL,
+    embed,
+  );
 
-    // Experiment 024. Embedding is deterministic, so a chunk whose text has not
-    // changed does not need re-embedding. Before this, every restart re-embedded
-    // the whole notebook — 256 chunks, 516.6 seconds, measured in 023.
-    const { vectors, stats } = await embedCache.get(
-      sources.map(chunkText),
-      EMBEDDING_MODEL,
-      embed,
-    );
+  // The build used to happen in silence while requests simply waited. It is
+  // the slowest thing this process does; it should say so.
+  log({
+    level: "info",
+    msg: "notebook index ready",
+    chunks: sources.length,
+    cache_hits: stats.hits,
+    embedded: stats.misses,
+    ms: Date.now() - started,
+  });
 
-    // The build used to happen in silence while requests simply waited. It is
-    // the slowest thing this process does; it should say so.
-    log({
-      level: "info",
-      msg: "notebook index ready",
-      chunks: sources.length,
-      cache_hits: stats.hits,
-      embedded: stats.misses,
-      ms: Date.now() - started,
-    });
-
-    indexBuilt = true;
-    return sources.map((item, i) => ({ item, vector: vectors[i] }));
-  })();
-  return indexPromise;
-}
+  indexBuilt = true;
+  return sources.map((item, i) => ({ item, vector: vectors[i] }));
+});
 
 let indexBuilt = false;
 

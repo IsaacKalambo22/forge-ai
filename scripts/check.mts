@@ -30,7 +30,17 @@ const NODE_FLAGS = [
 const GATES: Gate[] = [
   {
     name: "types",
-    command: "npx", args: ["tsc", "--noEmit"],
+    // `next typegen` FIRST. Next 16 generates global helper types (LayoutProps,
+    // PageProps) into .next/ and next-env.d.ts — both git-ignored. On a machine
+    // that has run `next dev` they exist; on a fresh clone they do not, and
+    // `tsc` fails with "Cannot find name 'LayoutProps'".
+    //
+    // Found by CI: every run failed on this gate, while every local run passed.
+    // The local gate was only green because of files a developer machine happens
+    // to have lying around — the exact disagreement Experiment 022 said would
+    // make the local gate untrustworthy.
+    command: "sh",
+    args: ["-c", "npx next typegen >/dev/null && npx tsc --noEmit"],
     why: "the contract between every module",
   },
   {

@@ -5,6 +5,8 @@ import "server-only";
 
 import { pipeline, type FeatureExtractionPipeline } from "@xenova/transformers";
 
+import { sharedRetryable } from "./once";
+
 // 384 dimensions. Small and fast; not the strongest model available, which is
 // the trade for running on a laptop CPU.
 const MODEL = "Xenova/all-MiniLM-L6-v2";
@@ -13,22 +15,19 @@ export const EMBEDDING_MODEL = MODEL;
 export const EMBEDDING_DIMENSIONS = 384;
 
 // Loading the model takes seconds and allocates real memory, so it is loaded
-// once and reused. The promise itself is cached, not the result — otherwise
-// two requests arriving together would both start a load.
-let extractorPromise: Promise<FeatureExtractionPipeline> | null = null;
+// once and reused, and concurrent callers share one load (Experiment 007).
+//
+// Experiment 026: it is also RETRIED after a failure. The first load downloads
+// the model over the network, and the original `promise ??= pipeline(...)`
+// cached a failed download forever — one dropped connection, and every later
+// request failed until the process restarted.
+//
+// `pipeline()` is typed as a union of every pipeline kind, so the task name has
+// to be narrowed by hand.
+const getExtractor = sharedRetryable(
+  () => pipeline("feature-extraction", MODEL) as Promise<FeatureExtractionPipeline>,
+);
 
-function getExtractor() {
-  // `pipeline()` is typed as a union of every pipeline kind, so the task name
-  // has to be narrowed by hand.
-  extractorPromise ??= pipeline("feature-extraction", MODEL) as Promise<FeatureExtractionPipeline>;
-  return extractorPromise;
-}
-
-/**
- * Embed one or more texts. `normalize: true` scales every vector to length 1,
- * which makes cosine similarity equal to a plain dot product and keeps scores
- * comparable across texts of different sizes.
- */
 /**
  * How many texts go through the model at once.
  *

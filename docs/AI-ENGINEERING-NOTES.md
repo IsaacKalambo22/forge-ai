@@ -2131,6 +2131,70 @@ start.
 401 blamed registration. When a test fails at a boundary, suspect the harness before
 the feature.
 
+### A local gate can be green for reasons CI does not share
+
+ForgeAI's CI workflow ran three times and **failed three times** before anyone looked,
+while every local run was green. The cause:
+
+```text
+Cannot find name 'LayoutProps'.
+```
+
+Next 16 generates global types (`LayoutProps`, `PageProps`) into `.next/` and
+`next-env.d.ts` during `next dev`, `next build` or `next typegen` — **both git-ignored.**
+Every developer machine had them; a fresh checkout did not. The local gate was only
+green because of generated files lying around.
+
+**Reproduce CI with a fresh clone before trusting a green local run:**
+
+```text
+git clone . /tmp/ci && cd /tmp/ci && pnpm install && <the CI steps, in CI's order>
+```
+
+Order matters: running the gate without CI's earlier `warm` step produced a different
+set of failures — which turned out to be a real bug of their own, but not CI's.
+
+And put the fix **in the gate**, not only in the workflow. Otherwise local and CI
+disagree again.
+
+### `promise ??= load()` caches a failure forever
+
+A standard way to share one expensive load between concurrent callers:
+
+```ts
+modelPromise ??= loadModel();
+```
+
+`??=` assigns only when the value is null. **A rejected promise is not null**, so a
+failed load is cached permanently:
+
+```text
+call 1 -> FAILED: network dropped
+call 2 -> FAILED: network dropped      same stale error
+load() was attempted 1 time           it would have succeeded on the second
+```
+
+In ForgeAI, a model download cut off after 79 seconds would have left search, ask and
+agent broken until the process restarted. The pattern had been copied into three
+modules, each with a comment correctly explaining why it cached the *promise* — which
+made the missing failure case harder to see, not easier.
+
+```ts
+pending ??= load().catch((error) => { pending = null; throw error; });
+```
+
+Concurrent callers still share one attempt; the next caller after a failure starts a
+fresh one.
+
+**A comment that explains one property well can hide the property it does not
+mention.**
+
+### A gate nobody reads has not run, as far as anyone can tell
+
+CI existed, ran, and failed — and nothing in the local workflow surfaced it. "CI
+exists" and "CI is green" look identical from a terminal. A result has to reach the
+person who can act on it: a badge, a notification, a command that reads it.
+
 ### Verification is not a gate unless something runs it
 
 A verified claim can silently regress. A command someone has to remember is better
@@ -2341,9 +2405,9 @@ Understand the trade-offs.
 
 # 44. Current ForgeAI Status
 
-**Last updated: 2026-09-15, after Experiment 024.**
+**Last updated: 2026-09-16, after Experiment 026.**
 
-Experiments 001–024 are built, documented and tested. One command, `pnpm check`, runs
+Experiments 001–026 are built, documented and tested. One command, `pnpm check`, runs
 every gate in ~38s, and a pre-push hook plus CI run it automatically. `pnpm test` runs 561 assertions
 across 24 files; `pnpm e2e` runs 32 end-to-end assertions against a real server. `npx tsc --noEmit` and `pnpm lint` are clean.
 
@@ -2371,7 +2435,7 @@ src/app/
   api/metrics   latency percentiles          (014)
 
 src/lib/        31 modules — see README for the trust annotations
-tests/          630 assertions, no framework
+tests/          646 assertions, no framework
 scripts/        pnpm eval · cost · verify · e2e · check (022, the gate)
 .data/forge.db  SQLite — users, transcripts, sessions, usage ledger  (015-017)
 scripts/        pnpm eval — the retrieval benchmark   (013)
@@ -2452,6 +2516,8 @@ The full gate runs in ~38s; breaking a test on purpose stops it at that gate (02
 The corpus really contains injection payloads; the renderer neutralised 5 (023)
 The notebook index is 256 chunks and takes 8.6 minutes to build (023)
 Caching embeddings: tens of seconds cold → 36-71ms warm, reproduced (024)
+CI failed 3/3 runs on a type generated only by `next dev` — green locally, never in CI (026)
+A cached rejected promise would have kept search broken until restart (026)
 Batching: ~18x faster and half the RSS — after a first attempt measured 2.6x
   from noise, inside a 2.9x spread of its own arm (024/025)
 Cached vectors are bit-identical to fresh ones, and retrieval is unchanged (024)
