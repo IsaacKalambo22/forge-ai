@@ -3,6 +3,9 @@ import { runAgent } from "@/lib/ai";
 import type { StreamEvent } from "@/lib/messages";
 import { observe, streamFailure } from "@/lib/observe";
 import { indexReady, warmIndex } from "@/lib/knowledge";
+import { usage } from "@/lib/usage";
+import { formatCost } from "@/lib/pricing";
+import { log } from "@/lib/log";
 
 const MAX_QUESTION_LENGTH = 500;
 
@@ -58,8 +61,37 @@ async function handle(request: Request, requestId: string) {
       const send = (event: StreamEvent) =>
         controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
 
+      // Experiment 028. One agent run is several upstream calls — the route
+      // the request-count proxy from Experiment 011 misrepresented worst, and
+      // until now the one whose `done` events were never recorded at all.
+      let upstreamCalls = 0;
+
       try {
         for await (const event of runAgent(question.trim())) {
+          if (event.type === "done") {
+            try {
+              const cost = usage.record({
+                requestId: `${requestId}-${++upstreamCalls}`,
+                userId: auth.userId,
+                conversationId: null,
+                route: "agent",
+                model: event.model,
+                usage: event.usage,
+              });
+              log({ level: "info", msg: "usage", request_id: requestId, route: "agent",
+                model: event.model, upstream_call: upstreamCalls,
+                input_tokens: event.usage.input_tokens,
+                output_tokens: event.usage.output_tokens,
+                cost: formatCost(cost) });
+            } catch (error) {
+              // Never let an accounting failure break a reply the user is
+              // already reading. Loud in the log, invisible in the stream.
+              log({ level: "error", msg: "failed to record usage",
+                request_id: requestId, route: "agent",
+                error: error instanceof Error ? error.message : String(error) });
+            }
+          }
+
           send(event);
         }
       } catch (error) {

@@ -10,7 +10,7 @@ at a time.
 
 ## Status
 
-**Experiments 001–026 complete, 027 in progress.** `pnpm check` → all gates pass locally:
+**Experiments 001–026 complete, 027–028 in progress.** `pnpm check` → all gates pass locally:
 types · lint · 646 unit · 39 end-to-end · retrieval benchmark.
 
 **CI is green.** Experiment 026's fix was confirmed on the push that followed it.
@@ -47,6 +47,8 @@ its own confirmation is still one push away.
 - [x] Warm-up at boot; embedding cache split from application state
 - [x] CI root cause found — generated types; plus a cached-failure bug in three loaders
 - [x] CI confirmed green on the push following the fix
+- [x] Usage recording on `ask` / `agent` / `analyze` — the ledger was blind to three
+      of four routes, agent worst of all (one run, several upstream calls)
 
 ### Currently building
 
@@ -85,7 +87,6 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 
 ### Deferred
 
-- [ ] Usage recording on ask / agent / analyze — only `/api/chat` records today
 - [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every turn
 - [ ] Prefix caching on `/api/ask`
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
@@ -611,6 +612,7 @@ is the deliverable; the code is the apparatus.
 | 025 | [Warm Index](experiments/025-warm-index/README.md) | 🟢 **Verified** — boot warm-up; derived data split from app state, deleting two bugs |
 | 026 | [CI Was Never Green](experiments/026-ci-was-never-green/README.md) | 🟢 **Fixed and confirmed** — green on the push that followed |
 | 027 | [CI Result Visibility](experiments/027-ci-visibility/README.md) | 🟡 **Built, verified locally** — `pnpm ci-status` + badge; not yet confirmed by its own push |
+| 028 | [Usage Recording on ask / agent / analyze](experiments/028-usage-everywhere/README.md) | 🟡 **Wired, type-checked** — observation blocked on the same missing credential as everything downstream of a live call |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
