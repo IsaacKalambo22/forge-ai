@@ -63,14 +63,22 @@ const callers = new Map<string, Bucket>();
 let globalBucket: Bucket | null = null;
 let lastEviction = 0;
 
-function callerKey(request: Request): string {
+// Experiment 029. `guard()` calls `checkAuth()` before `rateLimit()`, so on
+// every route it protects an identity already exists by the time the limiter
+// runs — it was simply never asked for. `login`/`register` call `rateLimit()`
+// directly, before any session exists, and stay IP-keyed on purpose: a
+// password-guessing attempt has no user id to be limited BY, only one to
+// guess. `userId` is undefined only on that pre-auth path.
+function callerKey(request: Request, userId?: string): string {
+  if (userId !== undefined) return `user:${userId}`;
+
   // WARNING: x-forwarded-for is set by the client unless a trusted proxy
   // overwrites it. Behind Vercel or a properly configured reverse proxy it is
   // trustworthy; exposed directly it is a value the attacker chooses, and this
   // limiter is then per-attacker-whim rather than per-caller.
   const forwarded = request.headers.get("x-forwarded-for");
   const ip = forwarded?.split(",")[0]?.trim();
-  return ip && ip !== "" ? ip : "unknown";
+  return ip && ip !== "" ? `ip:${ip}` : "ip:unknown";
 }
 
 /** Constant-time comparison, so timing cannot reveal the secret one byte at a time. */
@@ -184,7 +192,7 @@ export function guard(request: Request, route: RouteName): Response | Identity {
   const auth = checkAuth(request);
   if (auth instanceof Response) return auth;
 
-  const limited = rateLimit(request, route);
+  const limited = rateLimit(request, route, auth.userId);
   if (limited !== null) return limited;
 
   const broke = checkBudget(auth.userId, route);
@@ -249,18 +257,18 @@ export function budgetStatus() {
  * offer to brute-force the secret, so it still needs a limit; it just cannot
  * get one from `guard`.
  */
-export function rateLimit(request: Request, route: RouteName): Response | null {
+export function rateLimit(request: Request, route: RouteName, userId?: string): Response | null {
   const now = Date.now();
   const cost = COST[route];
 
-  // Amortised cleanup: the caller map is keyed by attacker-supplied values, so
-  // it must not grow without bound.
+  // Amortised cleanup: the caller map is keyed by attacker-supplied values
+  // (IP) or by our own ids (userId), so it must not grow without bound either way.
   if (now - lastEviction > 60_000) {
     evictIdle(callers, PER_CALLER, now);
     lastEviction = now;
   }
 
-  const key = callerKey(request);
+  const key = callerKey(request, userId);
   const caller = callers.get(key) ?? newBucket(PER_CALLER, now);
   // Every request costs at least 1 against the per-caller limit, so free routes
   // still cannot be hammered.

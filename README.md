@@ -10,8 +10,8 @@ at a time.
 
 ## Status
 
-**Experiments 001–026 complete, 027–028 in progress.** `pnpm check` → all gates pass locally:
-types · lint · 646 unit · 39 end-to-end · retrieval benchmark.
+**Experiments 001–026 complete, 027–029 in progress.** `pnpm check` → all gates pass locally:
+types · lint · 710 unit · 39 end-to-end · retrieval benchmark.
 
 **CI is green.** Experiment 026's fix was confirmed on the push that followed it.
 Experiment 027 closes the gap that let three red runs go unnoticed before anyone
@@ -49,6 +49,8 @@ its own confirmation is still one push away.
 - [x] CI confirmed green on the push following the fix
 - [x] Usage recording on `ask` / `agent` / `analyze` — the ledger was blind to three
       of four routes, agent worst of all (one run, several upstream calls)
+- [x] Per-user rate limiting — the limiter keyed on IP though identity was already
+      known; now keyed on user id wherever `guard()` has one
 
 ### Currently building
 
@@ -95,7 +97,6 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
 - [ ] CSRF token — slightly more pressing now there is a state-changing `PUT`
-- [ ] Per-user rate limiting — the limiter runs before identity is known
 - [ ] Moving the rate limiter and telemetry into the store — deliberately deferred
       in 015: hot-path state, and a disk write per request fixes nothing until
       there is a second instance
@@ -613,6 +614,7 @@ is the deliverable; the code is the apparatus.
 | 026 | [CI Was Never Green](experiments/026-ci-was-never-green/README.md) | 🟢 **Fixed and confirmed** — green on the push that followed |
 | 027 | [CI Result Visibility](experiments/027-ci-visibility/README.md) | 🟡 **Built, verified locally** — `pnpm ci-status` + badge; not yet confirmed by its own push |
 | 028 | [Usage Recording on ask / agent / analyze](experiments/028-usage-everywhere/README.md) | 🟡 **Wired, type-checked** — observation blocked on the same missing credential as everything downstream of a live call |
+| 029 | [Per-User Rate Limiting](experiments/029-per-user-rate-limit/README.md) | 🟢 **Verified** — 64 new unit assertions; identity, not IP, now bounds the same user |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
