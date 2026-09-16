@@ -1,5 +1,7 @@
 # ForgeAI
 
+[![check](https://github.com/IsaacKalambo22/forge-ai/actions/workflows/check.yml/badge.svg)](https://github.com/IsaacKalambo22/forge-ai/actions/workflows/check.yml)
+
 A learning project for AI engineering. The goal is not to ship a product — it is to
 understand each layer of an LLM application by building it, one deliberate experiment
 at a time.
@@ -8,10 +10,13 @@ at a time.
 
 ## Status
 
-**Experiments 001–026 complete.** `pnpm check` → all gates pass locally:
+**Experiments 001–026 complete, 027 in progress.** `pnpm check` → all gates pass locally:
 types · lint · 646 unit · 39 end-to-end · retrieval benchmark.
 
-**CI had never passed** until Experiment 026 found why — confirmation awaits the next push.
+**CI is green.** Experiment 026's fix was confirmed on the push that followed it.
+Experiment 027 closes the gap that let three red runs go unnoticed before anyone
+looked: a badge above, and `pnpm ci-status` reads the same result from the terminal —
+its own confirmation is still one push away.
 
 ### Completed
 
@@ -41,11 +46,13 @@ types · lint · 646 unit · 39 end-to-end · retrieval benchmark.
 - [x] Affordable index — cached embeddings; batching ~18× faster
 - [x] Warm-up at boot; embedding cache split from application state
 - [x] CI root cause found — generated types; plus a cached-failure bug in three loaders
+- [x] CI confirmed green on the push following the fix
 
 ### Currently building
 
-- [ ] **Confirm CI is green, and make its result visible.** 022's workflow ran three
-      times and failed three times, and nothing in the local workflow noticed.
+- [ ] **CI result visibility.** `pnpm ci-status` + a README badge, so "CI exists" and
+      "CI is green" stop looking identical from a terminal. Verified locally against
+      the live check run; not yet confirmed by its own push.
 
 ### Blocked — no Anthropic API credential
 
@@ -360,6 +367,23 @@ CI ([.github/workflows/check.yml](.github/workflows/check.yml)), which is the co
 that cannot be skipped with `--no-verify`. See
 [Experiment 022](experiments/022-continuous-verification/README.md).
 
+Running the gate is not the same as seeing whether it passed — 026 found that CI ran
+three times and failed three times while nothing local noticed. `pnpm ci-status` reads
+the check run for the current commit from the public GitHub API (no credential
+needed) and exits non-zero if it isn't green:
+
+```bash
+pnpm ci-status
+```
+
+```text
+forge-ai — ci-status  (IsaacKalambo22/forge-ai @ 69e20d2)
+
+  ✓ check      success  https://github.com/IsaacKalambo22/forge-ai/actions/runs/...
+```
+
+See [Experiment 027](experiments/027-ci-visibility/README.md).
+
 ## Index cost
 
 The notebook index is rebuilt on startup and embedding it is the slowest thing this
@@ -585,7 +609,8 @@ is the deliverable; the code is the apparatus.
 | 023 | [Injection, Beyond the Unit Test](experiments/023-injection-end-to-end/README.md) | 🟢 **Verified** — the corpus really contains payloads; renderer holds. Surfaced an 8.6-min index build |
 | 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — caching: ~40ms warm vs ~56s cold; batching: **~18×** and half the RSS (first attempt measured 2.6× from noise) |
 | 025 | [Warm Index](experiments/025-warm-index/README.md) | 🟢 **Verified** — boot warm-up; derived data split from app state, deleting two bugs |
-| 026 | [CI Was Never Green](experiments/026-ci-was-never-green/README.md) | 🟡 **Root cause found and fixed locally** — green on GitHub still unconfirmed |
+| 026 | [CI Was Never Green](experiments/026-ci-was-never-green/README.md) | 🟢 **Fixed and confirmed** — green on the push that followed |
+| 027 | [CI Result Visibility](experiments/027-ci-visibility/README.md) | 🟡 **Built, verified locally** — `pnpm ci-status` + badge; not yet confirmed by its own push |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
