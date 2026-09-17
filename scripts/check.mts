@@ -9,6 +9,9 @@
 //
 // This runs them in one command, in cost order, and stops at the first failure.
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+
+import { chromium } from "playwright";
 
 type Gate = {
   name: string;
@@ -62,6 +65,25 @@ const GATES: Gate[] = [
     name: "eval",
     command: "node", args: [...NODE_FLAGS, "scripts/eval-retrieval.mts"],
     why: "retrieval is at recall@3 = 100%, so this can only detect DAMAGE",
+  },
+  {
+    name: "visual",
+    command: "node", args: [...NODE_FLAGS, "scripts/visual.mts"],
+    why: "a real browser — curl cannot see a missing stylesheet or a console error",
+    skipIf: () => {
+      // Same shape as `verify`'s skip below: a real precondition, checked
+      // cheaply, before spawning anything. `playwright` is a devDependency
+      // (package.json), but the ~190MB browser binary it drives is a separate,
+      // explicit `npx playwright install chromium` — not something `pnpm
+      // install` pulls down for every clone, and not yet part of CI.
+      try {
+        return existsSync(chromium.executablePath())
+          ? null
+          : "chromium not installed — run: npx playwright install chromium";
+      } catch {
+        return "chromium not installed — run: npx playwright install chromium";
+      }
+    },
   },
   {
     name: "verify",

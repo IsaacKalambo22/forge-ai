@@ -42,3 +42,6 @@ next-env.d.ts
 
 # experiment 015 — local sqlite database
 /.data/
+
+# experiment 041 — pnpm visual's screenshots, regenerated every run
+/screenshots/
