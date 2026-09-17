@@ -201,4 +201,5 @@ export const embedCache = {
   get: (texts: string[], model: string, embedMissing: (t: string[]) => Promise<number[][]>) =>
     embedCached(embeddingDb(), texts, model, embedMissing, Date.now()),
   count: (model: string) => countCached(embeddingDb(), model),
+  lookup: (hashes: string[], model: string) => lookup(embeddingDb(), hashes, model),
 };

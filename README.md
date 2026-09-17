@@ -10,7 +10,7 @@ at a time.
 
 ## Status
 
-**Experiments 001–037 complete, 038 not yet committed.**
+**Experiments 001–038 complete, 039 not yet committed.**
 `pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
 retrieval benchmark.
 
@@ -95,6 +95,13 @@ confirmed itself and Experiment 028 both green on GitHub.
       enforces — a `reserved` field alongside `spent_today`, and `remaining`
       now subtracts both; verified live against a real in-flight request
       (`reserved` moved from $0 to $0.0256 and back)
+- [x] `knowledge.ts`'s `indexReady()` is now genuinely cross-layer — it reads the
+      shared embedding cache (hash-presence, not a count, to avoid a false
+      positive from orphaned rows) instead of trusting only its own module
+      instance's flag; `/metrics` never calls the index builder itself, so this
+      was not cosmetic staleness but a badge that could read "Building" forever.
+      Verified live: `ready` flipped true from a build that ran entirely in a
+      different layer (`instrumentation.ts`'s own warm-up)
 
 ### Currently building
 
@@ -131,12 +138,6 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 
 ### Deferred
 
-- [ ] `instrumentation.ts` and each Route Handler still have separate module
-      instances of `knowledge.ts`'s `indexBuilt` flag (Next.js's per-layer
-      bundling) — the user-facing symptom (a spurious 503 on a route layer's
-      first request) is fixed ([034](experiments/034-index-wait-not-check/README.md)),
-      but the flag itself still doesn't agree across layers, which is why
-      `/metrics`'s index badge can still show stale "Building"
 - [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every
       turn, but measured (Experiment 032's `estimateTokens`) at ~306 tokens
       combined for the default persona + all three tools: under the 1024
@@ -680,6 +681,7 @@ is the deliverable; the code is the apparatus.
 | 036 | [Testing the Boundary Itself](experiments/036-guard-unit-tests/README.md) | 🟢 **Verified** — 44 new assertions on `guard.ts` (auth, rate limiting, budget), previously untested; found and fixed the reason why (coupling to a DB singleton, not neglect) |
 | 037 | [Closing the Ceiling's Lip](experiments/037-budget-reservation/README.md) | 🟢 **Verified** — a spending reservation staked before the model call, not after; a second concurrent request is now refused with $0 recorded on either side |
 | 038 | [Making the Display Agree With the Check](experiments/038-budget-status-reservations/README.md) | 🟢 **Verified live** — `/metrics`'s budget tiles now include outstanding reservations, not just recorded spend; watched `reserved` move from $0 to $0.0256 and back across a real request |
+| 039 | [Making `indexReady()` Actually Cross-Layer](experiments/039-index-ready-cross-layer/README.md) | 🟢 **Verified live** — the badge reads the shared embedding cache instead of a per-layer flag; confirmed `ready` flips true from a build that ran entirely in a different module instance |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { chunkMarkdown, chunkText, type Chunk } from "./chunk";
 import { EMBEDDING_MODEL, embed } from "./embeddings";
-import { embedCache } from "./embedcache";
+import { embedCache, textHash } from "./embedcache";
 import { topK, type Scored } from "./vector";
 import { log } from "./log";
 import { readyWithin, sharedRetryable } from "./once";
@@ -89,12 +89,40 @@ const getIndex = sharedRetryable(async () => {
 
 let indexBuilt = false;
 
-/** True once the index is built IN THIS MODULE INSTANCE. See `ensureIndexReady()` —
- * this alone is not a safe gate for a route to 503 on. Kept for the `/metrics`
- * status badge, an informational display where a stale "Building" is a cosmetic
- * problem, not a request that fails when it didn't need to. */
+/**
+ * Whether the index is ready, in the cross-layer sense `/metrics`'s status
+ * badge actually needs answered. Not a safe gate for a route to 503 on — see
+ * `ensureIndexReady()`, which still owns that.
+ *
+ * `indexBuilt` alone only answers "has THIS module instance finished
+ * building" — and Next.js gives a Route Handler, a Server Component page and
+ * `instrumentation.ts` separate instances of this module (Experiment
+ * 033/034), each with its own copy of that flag starting false. A layer that
+ * has not run its own build yet would report "Building" even while every
+ * other layer — and the embedding cache itself — has been ready for hours.
+ *
+ * The fix is the same move Experiment 025 already made for `cached_vectors`
+ * right next to this badge: read the SQLite-backed cache, which every layer
+ * shares, instead of module-scoped state, which none of them do. A raw count
+ * comparison would not be enough — `embeddings` has no purge (Experiment 024
+ * never needed one), so an edited or removed experiment leaves orphaned rows
+ * that could make a stale count look sufficient by accident. Checking that
+ * every hash the CURRENT corpus actually needs is present avoids that: it is
+ * exactly the query `getIndex()` itself would make to find out whether this
+ * would be a 100% cache hit, minus the embedding call that only runs on a
+ * miss.
+ *
+ * Cheap enough to run on every `/metrics` request: `loadSources()` is markdown
+ * parsing over files already on disk, not the model call that made
+ * Experiment 023's cold build take 516 seconds.
+ */
 export function indexReady(): boolean {
-  return indexBuilt;
+  if (indexBuilt) return true;
+
+  const hashes = loadSources().map((source) => textHash(chunkText(source)));
+  if (hashes.length === 0) return false;
+
+  return embedCache.lookup(hashes, EMBEDDING_MODEL).size === hashes.length;
 }
 
 /**
@@ -117,22 +145,22 @@ export function warmIndex(): void {
   });
 }
 
-// Experiment 034. `indexReady()` answers "has THIS module instance finished
-// building" — and Next.js gives a Route Handler and `instrumentation.ts` (and,
-// per Experiment 033, a Server Component page) SEPARATE instances of this
-// module. `instrumentation.ts`'s boot-time warm-up completing never flips a
-// Route Handler's own `indexBuilt`, so a plain `if (!indexReady())` 503s
-// EVERY route layer's first real request — the exact cost Experiment 025 was
-// built to remove, silently reintroduced by a boundary 025 didn't know existed.
+// Experiment 034, `indexReady()` itself fixed in 038. Even now that
+// `indexReady()` is cross-layer-correct, it is still only a snapshot: it
+// looks at whether the needed hashes are cached RIGHT NOW and returns
+// immediately either way — it does not start a build, and it does not wait
+// for one already running. That is exactly right for an informational badge
+// and exactly wrong for a route deciding whether to 503: a plain
+// `if (!indexReady())` would still refuse a request that a few hundred
+// milliseconds of waiting would have let through — the exact cost
+// Experiment 025 was built to remove.
 //
-// The fix is not to make `indexBuilt` cross-layer (a bigger change — see
-// Experiment 033's Decisions). It's to notice that the question a first
-// request actually needs answered isn't "is it built RIGHT NOW" — it's "will
-// it be built SOON ENOUGH to be worth waiting for". Since Experiment 024,
-// `getIndex()` reads from `embedCache`, a real file every layer shares —
-// so THIS layer's first build, even though `indexBuilt` starts false here
-// too, is a cache read (measured: 77-312ms), not the 516s cold-embed 024
-// fixed. Worth a bounded wait instead of an instant refusal.
+// The question a first request actually needs answered isn't "is it built
+// RIGHT NOW" — it's "will it be built SOON ENOUGH to be worth waiting for".
+// Since Experiment 024, `getIndex()` reads from `embedCache`, a real file
+// every layer shares — so THIS layer's first build, even on a fresh
+// `indexBuilt`, is a cache read (measured: 77-312ms), not the 516s cold-embed
+// 024 fixed. Worth a bounded wait instead of an instant refusal.
 const INDEX_WAIT_TIMEOUT_MS = 3000;
 
 /**
