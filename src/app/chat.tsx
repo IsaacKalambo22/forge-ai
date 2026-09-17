@@ -7,6 +7,8 @@ import { readNdjsonStream } from "@/lib/ndjson";
 import type { ConversationAnalysis } from "@/lib/analysis";
 import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
 
+import { Button, EmptyState, ErrorState, Input, Select } from "@/components/ui";
+
 export default function Chat() {
   const [input, setInput] = useState("");
   const [persona, setPersona] = useState<PersonaId>("default");
@@ -153,17 +155,32 @@ export default function Chat() {
   const remaining = MAX_TURNS - messages.length;
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <section className="flex w-full flex-col gap-6">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-foreground">Chat</h2>
+        <Select
+          aria-label="Persona"
+          value={persona}
+          onChange={(event) => changePersona(event.target.value as PersonaId)}
+        >
+          {PERSONA_IDS.map((id) => (
+            <option key={id} value={id}>
+              {id}
+            </option>
+          ))}
+        </Select>
+      </div>
+
       {analysis && (
-        <div className="rounded border border-zinc-300 p-4 dark:border-zinc-700">
-          <h2 className="font-semibold">{analysis.title}</h2>
+        <div className="rounded-md border border-border bg-surface p-4">
+          <h3 className="text-sm font-semibold text-foreground">{analysis.title}</h3>
           {analysis.topics.length > 0 && (
-            <p className="mt-2 text-sm text-zinc-500">
+            <p className="mt-2 text-sm text-muted-foreground">
               Topics: {analysis.topics.join(" · ")}
             </p>
           )}
           {analysis.open_questions.length > 0 && (
-            <ul className="mt-2 list-disc pl-5 text-sm text-zinc-500">
+            <ul className="mt-2 list-disc pl-5 text-sm text-muted-foreground">
               {analysis.open_questions.map((question, index) => (
                 <li key={index}>{question}</li>
               ))}
@@ -172,87 +189,78 @@ export default function Chat() {
         </div>
       )}
 
-      <div className="flex flex-col gap-4">
-        {messages.map((message, index) => (
-          <div key={index} className="flex flex-col gap-1">
-            <p className="text-sm font-medium text-zinc-500">
-              {message.role === "user" ? "You" : `Claude · ${persona}`}
-            </p>
-            <p className="whitespace-pre-wrap">{message.content}</p>
-          </div>
-        ))}
-      </div>
+      {messages.length === 0 && streaming === "" ? (
+        <EmptyState
+          title="No messages yet"
+          description="Send a message to start a conversation with Claude."
+        />
+      ) : (
+        <div className="flex flex-col gap-4">
+          {messages.map((message, index) => (
+            <div key={index} className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-muted-foreground">
+                {message.role === "user" ? "You" : `Claude · ${persona}`}
+              </p>
+              <p className="whitespace-pre-wrap text-sm text-foreground">{message.content}</p>
+            </div>
+          ))}
+
+          {streaming !== "" && (
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-muted-foreground">Claude · {persona}</p>
+              <p className="whitespace-pre-wrap text-sm text-foreground">{streaming}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {activity.length > 0 && (
-        <ul className="rounded border border-zinc-300 p-3 font-mono text-xs text-zinc-500 dark:border-zinc-700">
+        <ul className="rounded-md border border-border bg-surface p-3 font-mono text-xs text-muted-foreground">
           {activity.map((line, index) => (
             <li key={index}>{line}</li>
           ))}
         </ul>
       )}
 
-      {streaming !== "" && (
-        <div className="flex flex-col gap-1">
-          <p className="text-sm font-medium text-zinc-500">Claude · {persona}</p>
-          <p className="whitespace-pre-wrap">{streaming}</p>
-        </div>
-      )}
+      {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
 
-      {meta && <p className="text-xs text-zinc-500">{meta}</p>}
-
-      {error && (
-        <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </p>
-      )}
+      {error && <ErrorState message={error} />}
 
       <form onSubmit={send} className="flex gap-2">
-        <select
-          value={persona}
-          onChange={(event) => changePersona(event.target.value as PersonaId)}
-          className="rounded border border-zinc-300 px-2 py-2 dark:border-zinc-700 dark:bg-zinc-900"
-        >
-          {PERSONA_IDS.map((id) => (
-            <option key={id} value={id}>
-              {id}
-            </option>
-          ))}
-        </select>
-        <input
+        <Input
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="Ask Claude something"
-          className="flex-1 rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          className="flex-1"
         />
-        <button
-          type="submit"
-          disabled={loading}
-          className="rounded bg-black px-4 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        >
+        <Button type="submit" disabled={loading}>
           {loading ? "Thinking…" : "Send"}
-        </button>
+        </Button>
       </form>
 
-      <button
-        type="button"
-        onClick={analyse}
-        disabled={conversationId === null || messages.length === 0 || analysing}
-        className="self-start rounded border border-zinc-300 px-3 py-1 text-sm disabled:opacity-50 dark:border-zinc-700"
-      >
-        {analysing ? "Analysing…" : "Analyse conversation"}
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={analyse}
+          disabled={conversationId === null || messages.length === 0 || analysing}
+          className="self-start"
+        >
+          {analysing ? "Analysing…" : "Analyse conversation"}
+        </Button>
 
-      <p className="text-sm text-zinc-500">
-        {messages.length} turns · {remaining} before the server cap.
-        {conversationId !== null && (
-          <>
-            {" "}
-            Conversation{" "}
-            <code className="font-mono text-xs">{conversationId.slice(0, 8)}</code>,
-            stored on the server — this page sends only an id and your next message.
-          </>
-        )}
-      </p>
-    </div>
+        <p className="text-sm text-muted-foreground">
+          {messages.length} turns · {remaining} before the server cap.
+          {conversationId !== null && (
+            <>
+              {" "}
+              Conversation{" "}
+              <code className="font-mono text-xs">{conversationId.slice(0, 8)}</code>,
+              stored on the server — this page sends only an id and your next message.
+            </>
+          )}
+        </p>
+      </div>
+    </section>
   );
 }

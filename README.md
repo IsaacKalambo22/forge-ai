@@ -10,7 +10,7 @@ at a time.
 
 ## Status
 
-**Experiments 001–028 complete, 029 committed and not yet pushed.**
+**Experiments 001–029 complete, 030 committed and not yet pushed.**
 `pnpm check` → all gates pass locally: types · lint · 710 unit · 39 end-to-end ·
 retrieval benchmark.
 
@@ -54,6 +54,9 @@ confirmed itself and Experiment 028 both green on GitHub.
       known; now keyed on user id wherever `guard()` has one
 - [x] CI result visibility — `pnpm ci-status` + a README badge; confirmed green
       against its own push (the commit that added it)
+- [x] Professional UI shell — design tokens, shared primitives, a `TopBar` +
+      root-layout auth gate shared by every route, and `/metrics` rendering the
+      real `GET /api/metrics` data (no fabricated numbers)
 
 ### Currently building
 
@@ -95,6 +98,8 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
 - [ ] Client-component tests — `chat.tsx` state handling is only hand-clicked
+- [ ] Headless-browser verification for UI changes — Experiment 030 could only
+      check rendered markup via `curl`, not an actual screenshot
 - [ ] Tracing — which layer owns the latency, not just the total
 - [ ] Log shipping and retention — stdout is enough for one process, not two
 - [ ] CSRF token — slightly more pressing now there is a state-changing `PUT`

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { Button, ErrorState, Input, Label } from "@/components/ui";
+
 /**
  * Credentials are typed here and POSTed once. They are never stored in the
  * browser — what comes back is an HttpOnly cookie the browser sends
@@ -44,21 +46,21 @@ export default function Login() {
   }
 
   return (
-    <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-3">
-      <label htmlFor="username" className="text-sm text-zinc-500">
-        Sign in to Forge AI.
-      </label>
-      <input
-        id="username"
-        name="username"
-        autoComplete="username"
-        placeholder="Username"
-        value={username}
-        onChange={(event) => setUsername(event.target.value)}
-        className="rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
-      />
-      <div className="flex gap-2">
-        <input
+    <form onSubmit={submit} className="flex w-full flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="username">Username</Label>
+        <Input
+          id="username"
+          name="username"
+          autoComplete="username"
+          placeholder="Username"
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="password">Password</Label>
+        <Input
           id="password"
           name="password"
           type="password"
@@ -66,21 +68,12 @@ export default function Login() {
           placeholder="Password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="flex-1 rounded border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
         />
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded bg-black px-4 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        >
-          {busy ? "…" : "Sign in"}
-        </button>
       </div>
-      {error && (
-        <p className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </p>
-      )}
+      <Button type="submit" disabled={busy}>
+        {busy ? "Signing in…" : "Sign in"}
+      </Button>
+      {error && <ErrorState message={error} />}
     </form>
   );
 }
