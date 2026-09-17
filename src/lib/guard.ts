@@ -7,7 +7,8 @@ import { SESSION_COOKIE, readCookie, verifySession } from "./session";
 import { revocations } from "./revocation";
 import { users, DEV_USER_ID } from "./users";
 import { usage } from "./usage";
-import { dollars, formatCost } from "./pricing";
+import { reservations } from "./reservation";
+import { dollars, formatCost, PRICING, DEFAULT_MODEL, MAX_OUTPUT_TOKENS } from "./pricing";
 
 // Per-caller allowance. Capacity is the burst; refill is the sustained rate.
 // 20 tokens refilling at 1/3 per second ≈ 20 chat calls per minute sustained.
@@ -187,40 +188,82 @@ export function currentUserId(request: Request): string | null {
  *
  * Called BEFORE any streaming begins, so it can still use real status codes —
  * Experiment 004. A 429 emitted mid-stream would be an HTTP 200.
+ *
+ * `requestId` — Experiment 014's correlation id, already minted by `observe()`
+ * before this runs — is what a paid route's reservation is keyed on, so the
+ * same id that ties a log line to a response also ties a budget claim to the
+ * request that must eventually release it.
  */
-export function guard(request: Request, route: RouteName): Response | Identity {
+export function guard(request: Request, route: RouteName, requestId: string): Response | Identity {
   const auth = checkAuth(request);
   if (auth instanceof Response) return auth;
 
   const limited = rateLimit(request, route, auth.userId);
   if (limited !== null) return limited;
 
-  const broke = checkBudget(auth.userId, route);
+  const broke = checkBudget(auth.userId, route, requestId);
   if (broke !== null) return broke;
 
   return auth;
 }
 
+// Experiment 037. How long a reservation counts against the budget before it
+// is treated as abandoned. Generous relative to any single upstream call
+// (MAX_OUTPUT_TOKENS bounds one call's generation time, not this), because the
+// slowest real route is `agent` running up to COST.agent sequential calls —
+// and short enough that a request that errors out before reaching its
+// route's `finally` (an early validation failure, a crash) self-heals inside
+// minutes rather than holding budget hostage for the rest of the day.
+const RESERVATION_TTL_MS = 5 * 60_000;
+
 /**
- * Experiment 017. Refuses paid work once real spending passes a ceiling.
+ * What a request to `route` could still cost before anything about it is
+ * known — the number `checkBudget` had no way to get at before this
+ * reservation existed.
  *
- * AN HONEST LIMITATION, STATED RATHER THAN HIDDEN: this authorizes a request on
- * spending SO FAR, and the cost of the request being authorized is unknowable
- * until it finishes. So the budget can always be exceeded by the cost of one
- * in-flight request (or of several arriving together). It is a ceiling with a
- * lip, not a hard cap.
+ * OUTPUT tokens only, not input: `MAX_OUTPUT_TOKENS` is a real ceiling every
+ * call site in ai.ts is bound by (Experiment 001's Q7), so output cost has a
+ * true worst case before the call is ever made. Input cost does not — it
+ * depends on retrieved passages and conversation history this function
+ * cannot see without re-deriving what ai.ts is about to send — so it is left
+ * to the exact figure `usage.record()` writes once the real response comes
+ * back, same as before. This still closes the failure mode that mattered:
+ * concurrent requests that would otherwise all read the same "spent so far"
+ * and all proceed now each stake a real, non-zero claim against it first.
  *
- * Making it exact would mean reserving an estimated cost before the call and
- * reconciling after — doable, and it needs `count_tokens` plus a reservation
- * table. Deferred, and recorded so the guarantee is not overstated.
+ * `COST[route]` doubles as the upstream-call count, same as `rateLimit()`
+ * already uses it — including its one known imprecision: `chat`'s tool loop
+ * can take up to `MAX_TOOL_ITERATIONS` turns but is weighted as 1, same gap
+ * the rate limiter has always had. Not widened here, not fixed here either.
  */
-function checkBudget(userId: string, route: RouteName): Response | null {
+function reservedCostFor(route: RouteName): number {
+  return COST[route] * MAX_OUTPUT_TOKENS * PRICING[DEFAULT_MODEL].output;
+}
+
+/**
+ * Experiment 017, closed by Experiment 037.
+ *
+ * 017's honest limitation: this authorizes a request on spending SO FAR, and
+ * the cost of the request being authorized was unknowable until it finished —
+ * "a ceiling with a lip, not a hard cap." Two requests arriving together both
+ * saw the same spent-so-far figure and both proceeded, because neither had
+ * billed anything yet.
+ *
+ * The fix: count outstanding reservations — this request's about to be, and
+ * every other in-flight request's already-staked claim — alongside recorded
+ * spend, and stake this one before returning. A concurrent second request now
+ * sees the first's claim even though the first has not billed a token yet.
+ */
+function checkBudget(userId: string, route: RouteName, requestId: string): Response | null {
   if (COST[route] === 0) return null; // free routes spend nothing
 
-  const spentTotal = usage.spentTotal();
-  if (spentTotal >= DAILY_TOTAL_BUDGET()) {
+  const reservedCost = reservedCostFor(route);
+
+  const spentTotal = usage.spentTotal() + reservations.activeTotal();
+  if (spentTotal + reservedCost > DAILY_TOTAL_BUDGET()) {
     console.error(
-      `Daily budget exhausted: ${formatCost(spentTotal)} of ${formatCost(DAILY_TOTAL_BUDGET())}`,
+      `Daily budget exhausted: ${formatCost(spentTotal)} of ${formatCost(DAILY_TOTAL_BUDGET())}` +
+        ` (this request would reserve ${formatCost(reservedCost)})`,
     );
     return Response.json(
       { error: "Daily budget exhausted" },
@@ -228,14 +271,15 @@ function checkBudget(userId: string, route: RouteName): Response | null {
     );
   }
 
-  const spentByUser = usage.spentByUser(userId);
-  if (spentByUser >= DAILY_USER_BUDGET()) {
+  const spentByUser = usage.spentByUser(userId) + reservations.activeByUser(userId);
+  if (spentByUser + reservedCost > DAILY_USER_BUDGET()) {
     return Response.json(
       { error: "Your daily budget is exhausted" },
       { status: 429, headers: { "Retry-After": "3600" } },
     );
   }
 
+  reservations.reserve({ requestId, userId, route, amountNanodollars: reservedCost }, RESERVATION_TTL_MS);
   return null;
 }
 
@@ -262,9 +306,13 @@ export function rateLimit(request: Request, route: RouteName, userId?: string): 
   const cost = COST[route];
 
   // Amortised cleanup: the caller map is keyed by attacker-supplied values
-  // (IP) or by our own ids (userId), so it must not grow without bound either way.
+  // (IP) or by our own ids (userId), so it must not grow without bound either
+  // way. Piggybacks the reservations table's own cleanup onto the same timer
+  // rather than inventing a second one — every guarded request already passes
+  // through here, so nothing extra needs to call in for either to stay bounded.
   if (now - lastEviction > 60_000) {
     evictIdle(callers, PER_CALLER, now);
+    reservations.purge();
     lastEviction = now;
   }
 

@@ -168,6 +168,36 @@ const MIGRATIONS: string[] = [
   `
   DROP TABLE IF EXISTS embeddings;
   `,
+
+  // 7 — spending reservations.
+  //
+  // Experiment 037. guard.ts's own comment named the gap plainly: checkBudget()
+  // authorizes a request against spending SO FAR, and the cost of the request
+  // being authorized is unknowable until it finishes — "a ceiling with a lip,
+  // not a hard cap." Two requests arriving together both see the same
+  // spent-so-far figure and both pass, because neither has billed anything yet.
+  //
+  // A reservation closes that window: guard() stakes a conservative claim
+  // BEFORE the model is called, checkBudget() counts outstanding claims
+  // alongside recorded spend, and the route releases the claim once the real
+  // (almost always smaller) cost is known. Short-lived by design — `expires_at`
+  // is minutes away, not hours — so a request that errors out before its route
+  // handler reaches the release point self-heals instead of holding budget
+  // hostage forever, the same trade `revoked_sessions` makes for a stolen
+  // session.
+  `
+  CREATE TABLE reservations (
+    request_id         TEXT PRIMARY KEY,
+    user_id             TEXT NOT NULL REFERENCES users(id),
+    route               TEXT NOT NULL,
+    amount_nanodollars  INTEGER NOT NULL CHECK (amount_nanodollars >= 0),
+    created_at          INTEGER NOT NULL,
+    expires_at          INTEGER NOT NULL
+  );
+
+  CREATE INDEX reservations_by_user_expiry ON reservations (user_id, expires_at);
+  CREATE INDEX reservations_by_expiry ON reservations (expires_at);
+  `,
 ];
 
 /**

@@ -5,6 +5,7 @@ import { isPersonaId } from "@/lib/personas";
 import { observe, streamFailure } from "@/lib/observe";
 import { transcripts, TranscriptError } from "@/lib/transcripts";
 import { usage } from "@/lib/usage";
+import { reservations } from "@/lib/reservation";
 import { formatCost } from "@/lib/pricing";
 import { log } from "@/lib/log";
 
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
 // no parameter through which a caller can supply one — not because it is
 // validated away, but because it does not exist.
 async function handle(request: Request, requestId: string) {
-  const auth = guard(request, "chat");
+  const auth = guard(request, "chat", requestId);
   if (auth instanceof Response) return auth;
 
   let body: unknown;
@@ -167,6 +168,8 @@ async function handle(request: Request, requestId: string) {
             streamFailure(requestId, "chat", "Failed to record assistant turn", error);
           }
         }
+        // Experiment 037. See ask/route.ts.
+        reservations.release(requestId);
         controller.close();
       }
     },

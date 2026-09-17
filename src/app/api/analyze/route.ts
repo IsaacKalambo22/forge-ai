@@ -3,6 +3,7 @@ import { analyzeConversation } from "@/lib/ai";
 import { observe, failure } from "@/lib/observe";
 import { transcripts } from "@/lib/transcripts";
 import { usage } from "@/lib/usage";
+import { reservations } from "@/lib/reservation";
 import { formatCost } from "@/lib/pricing";
 import { log } from "@/lib/log";
 
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
 // as /api/chat — this route used to accept whatever history the client sent,
 // which meant it analysed a conversation that need not have happened.
 async function handle(request: Request, requestId: string) {
-  const auth = guard(request, "analyze");
+  const auth = guard(request, "analyze", requestId);
   if (auth instanceof Response) return auth;
 
   let body: unknown;
@@ -88,5 +89,9 @@ async function handle(request: Request, requestId: string) {
     });
   } catch (error) {
     return failure(requestId, "analyze", "Analysis failed", 502, error);
+  } finally {
+    // Experiment 037. Whatever guard() reserved for this request is done
+    // being needed the moment this call is settled, success or failure.
+    reservations.release(requestId);
   }
 }

@@ -1,6 +1,6 @@
 // Experiment 036. guard.ts is the application's entire auth/authz/budget
-// boundary — every route calls guard(request, route) before doing any work —
-// and it had no unit test. Not neglect: checkAuth()/checkBudget()/
+// boundary — every route calls guard(request, route, requestId) before doing
+// any work — and it had no unit test. Not neglect: checkAuth()/checkBudget()/
 // budgetStatus()/currentUserId() call the SINGLETON db-backed wrappers
 // (users.ensureDev(), usage.spentTotal(), revocations.isRevoked()) directly,
 // rather than taking an injectable DatabaseSync the way users.ts/usage.ts/
@@ -17,8 +17,9 @@ import { createUser, DEV_USER_ID } from "@/lib/users";
 import { db } from "@/lib/db";
 import { recordUsage } from "@/lib/usage";
 import { revocations } from "@/lib/revocation";
+import { reservations } from "@/lib/reservation";
 import { issueSession } from "@/lib/session";
-import { dollars, formatCost } from "@/lib/pricing";
+import { dollars, formatCost, PRICING, DEFAULT_MODEL, MAX_OUTPUT_TOKENS } from "@/lib/pricing";
 import { group, ok, eq } from "./harness.mts";
 
 const SECRET = "test-app-secret-value-long-enough";
@@ -69,7 +70,7 @@ withEnv({ APP_SECRET: SECRET }, () => {
 
 group("guard — dev-open mode (no APP_SECRET, not production)");
 withEnv({ APP_SECRET: undefined, NODE_ENV: "test" }, () => {
-  const result = guard(req(), "chat");
+  const result = guard(req(), "chat", randomUUID());
   ok("guard succeeds without any credential", !(result instanceof Response));
   if (!(result instanceof Response)) {
     eq("as the fixed dev user", result.userId, DEV_USER_ID);
@@ -80,7 +81,7 @@ withEnv({ APP_SECRET: undefined, NODE_ENV: "test" }, () => {
 
 group("guard — production with no APP_SECRET fails CLOSED, not open");
 withEnv({ APP_SECRET: undefined, NODE_ENV: "production" }, () => {
-  const result = guard(req(), "chat");
+  const result = guard(req(), "chat", randomUUID());
   ok("guard refuses", result instanceof Response);
   if (result instanceof Response) {
     eq("503 — misconfiguration, not permission", result.status, 503);
@@ -89,14 +90,14 @@ withEnv({ APP_SECRET: undefined, NODE_ENV: "production" }, () => {
 
 group("guard — with a real secret configured, no credential at all is 401");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
-  const result = guard(req(), "chat");
+  const result = guard(req(), "chat", randomUUID());
   ok("refused", result instanceof Response);
   if (result instanceof Response) eq("401", result.status, 401);
 });
 
 group("guard — Bearer token: correct secret authenticates as the operator");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
-  const result = guard(req({ authorization: `Bearer ${SECRET}` }), "chat");
+  const result = guard(req({ authorization: `Bearer ${SECRET}` }), "chat", randomUUID());
   ok("succeeds", !(result instanceof Response));
   if (!(result instanceof Response)) {
     eq("as the dev/operator user — the token names no one else", result.userId, DEV_USER_ID);
@@ -106,7 +107,7 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
 group("guard — Bearer token: wrong secret, same length, is 401");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
   const wrong = "x".repeat(SECRET.length);
-  const result = guard(req({ authorization: `Bearer ${wrong}` }), "chat");
+  const result = guard(req({ authorization: `Bearer ${wrong}` }), "chat", randomUUID());
   ok("refused", result instanceof Response);
   if (result instanceof Response) eq("401, not distinguished from any other failure", result.status, 401);
 });
@@ -116,7 +117,7 @@ group("guard — Bearer token: wrong LENGTH does not throw, still 401");
 // on a length mismatch, which would itself leak the real secret's length via
 // a crash instead of a clean 401.
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
-  const result = guard(req({ authorization: "Bearer short" }), "chat");
+  const result = guard(req({ authorization: "Bearer short" }), "chat", randomUUID());
   ok("refused, not thrown", result instanceof Response);
   if (result instanceof Response) eq("401", result.status, 401);
 });
@@ -124,7 +125,7 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
 group("guard — session cookie: valid, unexpired, unrevoked");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
   const userId = randomUUID();
-  const result = guard(req({ cookie: cookieHeader(userId) }), "chat");
+  const result = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
   ok("succeeds", !(result instanceof Response));
   if (!(result instanceof Response)) {
     eq("as the SIGNED subject, not the dev user", result.userId, userId);
@@ -136,7 +137,7 @@ group("guard — session cookie: wrong secret's signature does not verify");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
   const userId = randomUUID();
   const badCookie = cookieHeader(userId, "a-completely-different-secret-value");
-  const result = guard(req({ cookie: badCookie }), "chat");
+  const result = guard(req({ cookie: badCookie }), "chat", randomUUID());
   ok("refused", result instanceof Response);
   if (result instanceof Response) eq("401", result.status, 401);
   eq("hasValidSession agrees", hasValidSession(req({ cookie: badCookie })), false);
@@ -149,9 +150,9 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
   const token = issueSession(SECRET, userId, Date.now());
   const cookie = `forge_session=${token}`;
 
-  ok("valid before revocation", !(guard(req({ cookie }), "chat") instanceof Response));
+  ok("valid before revocation", !(guard(req({ cookie }), "chat", randomUUID()) instanceof Response));
   revocations.revoke(token, Date.now() + 60_000);
-  const result = guard(req({ cookie }), "chat");
+  const result = guard(req({ cookie }), "chat", randomUUID());
   ok("refused after revocation — same signature, different fact about the world",
     result instanceof Response);
   if (result instanceof Response) eq("401", result.status, 401);
@@ -170,7 +171,7 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test", FORGE_DAILY_BUDGET_USD: "0" }, (
   // route must still succeed, because it never asks the question.
   eq("search costs nothing", COST.search, 0);
   const userId = randomUUID();
-  const result = guard(req({ cookie: cookieHeader(userId) }), "search");
+  const result = guard(req({ cookie: cookieHeader(userId) }), "search", randomUUID());
   ok("free route succeeds even with a zero budget", !(result instanceof Response));
 });
 
@@ -183,7 +184,7 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test", FORGE_USER_DAILY_BUDGET_USD: "0.
     model: "claude-opus-5", usage: { input_tokens: 1000, output_tokens: 500 },
   }, Date.now());
 
-  const result = guard(req({ cookie: cookieHeader(userId) }), "chat");
+  const result = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
   ok("refused", result instanceof Response);
   if (result instanceof Response) {
     eq("429, not 401 or 500 — this is a budget fact, not an auth failure", result.status, 429);
@@ -199,7 +200,7 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test", FORGE_USER_DAILY_BUDGET_USD: "5"
     model: "claude-opus-5", usage: { input_tokens: 1000, output_tokens: 500 },
   }, Date.now());
 
-  const result = guard(req({ cookie: cookieHeader(userId) }), "chat");
+  const result = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
   ok("succeeds — $0.0175 spent, $5 allowed", !(result instanceof Response));
 });
 
@@ -217,16 +218,64 @@ withEnv({
   // A DIFFERENT user, who has personally spent nothing, still gets refused —
   // the total ceiling protects the OPERATOR's bill, not just each caller's own.
   const newUser = realUser();
-  const result = guard(req({ cookie: cookieHeader(newUser) }), "chat");
+  const result = guard(req({ cookie: cookieHeader(newUser) }), "chat", randomUUID());
   ok("refused despite this user having spent $0", result instanceof Response);
   if (result instanceof Response) {
     eq("429", result.status, 429);
   }
 });
 
+// Experiment 037. The gap checkBudget()'s own comment named since 017: two
+// requests arriving together both read the same spent-so-far figure — $0,
+// since neither has billed anything yet — and both used to proceed. What
+// guard() reserves before returning is what closes that window.
+const RESERVED_FOR_CHAT = COST.chat * MAX_OUTPUT_TOKENS * PRICING[DEFAULT_MODEL].output;
+
+group("guard — reservation: a second concurrent request is refused before either bills a cent");
+withEnv({
+  APP_SECRET: SECRET, NODE_ENV: "test",
+  // Room for one chat reservation and a bit more, not two.
+  FORGE_DAILY_BUDGET_USD: String((RESERVED_FOR_CHAT * 1.5) / 1e9),
+}, () => {
+  const first = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  ok("the first request succeeds and stakes its claim", !(first instanceof Response));
+
+  const second = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  ok("the second is refused by the FIRST's outstanding reservation — not by recorded spend, " +
+    "there is none yet", second instanceof Response);
+  if (second instanceof Response) eq("429", second.status, 429);
+});
+
+group("guard — reservation: releasing a claim frees the budget it held");
+withEnv({
+  APP_SECRET: SECRET, NODE_ENV: "test",
+  FORGE_DAILY_BUDGET_USD: String((RESERVED_FOR_CHAT * 1.5) / 1e9),
+}, () => {
+  const heldRequestId = randomUUID();
+  const first = guard(req({ cookie: cookieHeader(realUser()) }), "chat", heldRequestId);
+  ok("succeeds", !(first instanceof Response));
+
+  const blocked = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  ok("a second is blocked while the first's claim is outstanding", blocked instanceof Response);
+
+  reservations.release(heldRequestId);
+
+  const afterRelease = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  ok("a third succeeds once the held claim is released — same as a route's `finally` would do",
+    !(afterRelease instanceof Response));
+});
+
+group("guard — reservation: a free route never stakes a claim");
+withEnv({ APP_SECRET: SECRET, NODE_ENV: "test", FORGE_DAILY_BUDGET_USD: "0" }, () => {
+  const before = reservations.activeTotal();
+  const result = guard(req({ cookie: cookieHeader(realUser()) }), "search", randomUUID());
+  ok("succeeds even with a $0 budget — COST.search is 0", !(result instanceof Response));
+  eq("no reservation was staked for it", reservations.activeTotal(), before);
+});
+
 group("guard — order of checks: an auth failure wins even when budget is ALSO exhausted");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test", FORGE_DAILY_BUDGET_USD: "0" }, () => {
-  const result = guard(req(), "chat"); // no credential at all
+  const result = guard(req(), "chat", randomUUID()); // no credential at all
   ok("refused", result instanceof Response);
   if (result instanceof Response) {
     eq("401 — auth is checked before budget, so THIS is why it failed", result.status, 401);

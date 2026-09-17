@@ -69,6 +69,16 @@ export const PRICING: Record<string, Price> = {
 /** The model this project actually calls — see ai.ts. */
 export const DEFAULT_MODEL = "claude-opus-5";
 
+/**
+ * The `max_tokens` ceiling every call site in ai.ts passes. One constant,
+ * not six copies of the literal `1024` — guard.ts's budget reservation
+ * (Experiment 037) multiplies this by a route's output price to bound what an
+ * in-flight call could still cost, and a reservation computed from a number
+ * that silently drifted out of sync with the real request would be exactly
+ * the "guessing" this module's header warns against.
+ */
+export const MAX_OUTPUT_TOKENS = 1024;
+
 export class PricingError extends Error {}
 
 /**

@@ -14,6 +14,7 @@ import { makeNonce, passageDelimiterNotice, PASSAGE_RULES, renderPassages } from
 import { retrieve } from "./knowledge";
 import { estimateMessageTokens, estimateTokens, pruneToolResults, worthCaching, type Message } from "./context";
 import { MAX_TOOL_ITERATIONS, TOOL_DEFINITIONS, executeTool } from "./tools";
+import { MAX_OUTPUT_TOKENS } from "./pricing";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -52,7 +53,7 @@ export function streamClaude(
   return anthropic.messages.stream({
     model: "claude-opus-5",
     // Deliberately low for Experiment 001's open question Q7.
-    max_tokens: 1024,
+    max_tokens: MAX_OUTPUT_TOKENS,
     system: PROMPTS[persona],
     messages,
   });
@@ -66,7 +67,7 @@ export async function askClaude(
     model: "claude-opus-5",
     // Deliberately low for Experiment 001's open question Q7: a small ceiling
     // makes `stop_reason` flip from "end_turn" to "max_tokens" observable.
-    max_tokens: 1024,
+    max_tokens: MAX_OUTPUT_TOKENS,
     system: PROMPTS[persona],
     messages,
   });
@@ -80,7 +81,7 @@ export async function askClaude(
 export async function analyzeConversation(messages: ChatMessage[]) {
   const response = await anthropic.messages.parse({
     model: "claude-opus-5",
-    max_tokens: 1024,
+    max_tokens: MAX_OUTPUT_TOKENS,
     system:
       "You analyse chat transcripts. Report only what the transcript " +
       "supports. If there are no open questions, return an empty array.",
@@ -210,7 +211,7 @@ export async function* runToolLoop(
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     const stream = anthropic.messages.stream({
       model: "claude-opus-5",
-      max_tokens: 1024,
+      max_tokens: MAX_OUTPUT_TOKENS,
       system: PROMPTS[persona],
       tools: TOOL_DEFINITIONS,
       // Experiment 018: the history is re-sent every turn and billed every
@@ -314,7 +315,7 @@ export async function* answerFromNotebook(
 
   const stream = anthropic.messages.stream({
     model: "claude-opus-5",
-    max_tokens: 1024,
+    max_tokens: MAX_OUTPUT_TOKENS,
     // Experiment 031: split so the request-invariant preamble can carry a
     // cache breakpoint (withCachedAskSystem, above) while the nonce and the
     // passages — which must differ every call — stay outside it.
@@ -402,7 +403,7 @@ export async function* runAgent(question: string): AsyncGenerator<StreamEvent> {
 
     const stream = anthropic.messages.stream({
       model: "claude-opus-5",
-      max_tokens: 1024,
+      max_tokens: MAX_OUTPUT_TOKENS,
       system,
       tools: TOOL_DEFINITIONS,
       messages: messages as Anthropic.MessageParam[],

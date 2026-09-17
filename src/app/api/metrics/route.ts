@@ -20,8 +20,8 @@ import { parseSpendWindow, SPEND_WINDOWS } from "@/lib/metrics-windows";
  * address bar, which is most of its value at this stage.
  */
 export async function GET(request: Request) {
-  return observe("metrics", async () => {
-    const auth = guard(request, "metrics");
+  return observe("metrics", async (requestId) => {
+    const auth = guard(request, "metrics", requestId);
     if (auth instanceof Response) return auth;
 
     // Experiment 033: a caller-chosen window, whitelisted (metrics-windows.ts)

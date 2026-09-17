@@ -121,8 +121,8 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  return observe("logout", async () => {
-    const auth = guard(request, "search");
+  return observe("logout", async (requestId) => {
+    const auth = guard(request, "search", requestId);
     if (auth instanceof Response) return auth;
 
     // Experiment 015. Clearing the cookie only asks the BROWSER to forget the

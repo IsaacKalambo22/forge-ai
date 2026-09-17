@@ -4,6 +4,7 @@ import type { StreamEvent } from "@/lib/messages";
 import { observe, streamFailure } from "@/lib/observe";
 import { ensureIndexReady } from "@/lib/knowledge";
 import { usage } from "@/lib/usage";
+import { reservations } from "@/lib/reservation";
 import { formatCost } from "@/lib/pricing";
 import { log } from "@/lib/log";
 
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
 async function handle(request: Request, requestId: string) {
   // Auth, rate limit and budget — before ANY work, and before the first
   // byte, so a real status code is still available (Experiment 004).
-  const auth = guard(request, "agent");
+  const auth = guard(request, "agent", requestId);
   if (auth instanceof Response) return auth;
 
   let body: unknown;
@@ -103,6 +104,9 @@ async function handle(request: Request, requestId: string) {
         // it. Experiment 014 sends a correlation id instead.
         send({ type: "error", error: streamFailure(requestId, "agent", "Agent failed", error) });
       } finally {
+        // Experiment 037. See ask/route.ts — the one reservation guard() staked
+        // for this whole run (not one per step) is released once, here.
+        reservations.release(requestId);
         controller.close();
       }
     },
