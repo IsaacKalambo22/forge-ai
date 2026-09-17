@@ -29,10 +29,16 @@ export function MobileMenu({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   // Closes on navigation — picking a nav link from the open menu should not
-  // leave the menu open over the new page.
-  useEffect(() => {
+  // leave the menu open over the new page. Deliberately NOT a `useEffect`
+  // keyed on `pathname`: React's own guidance for "adjust state when a prop
+  // changes" (and this project's lint config enforces it —
+  // `react-hooks/set-state-in-effect`) is to compare during render and call
+  // setState conditionally there, not synchronously inside an effect body.
+  const [renderedPathname, setRenderedPathname] = useState(pathname);
+  if (pathname !== renderedPathname) {
+    setRenderedPathname(pathname);
     setOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!open) return;

@@ -116,6 +116,34 @@ try {
     await page.getByRole("heading", { name: "Ask the notebook" }).isVisible());
   await page.screenshot({ path: `${SCREENSHOT_DIR}/02-home.png`, fullPage: true });
 
+  group("visual — the top bar collapses into a menu below 640px (Experiment 044)");
+  // Adding the theme toggle (Experiment 043) was what pushed the top bar past
+  // its available width below `sm:` — measured, at the time, 440px of content
+  // trying to fit in a 375px viewport, with the theme <select> clipped off the
+  // right edge entirely. This is the regression test for that.
+  await page.setViewportSize({ width: 375, height: 700 });
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  ok("no horizontal overflow at 375px", overflow.scrollWidth === overflow.clientWidth,
+    `scrollWidth ${overflow.scrollWidth} vs clientWidth ${overflow.clientWidth}`);
+
+  const menuButton = page.getByRole("button", { name: "Open menu" });
+  ok("the menu button is visible below the breakpoint", await menuButton.isVisible());
+  ok("the theme select is NOT reachable before the menu is opened",
+    !(await page.getByLabel("Theme").isVisible()));
+
+  await menuButton.click();
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/02b-mobile-menu.png` });
+  ok("Observability becomes reachable once the menu is opened",
+    await page.getByRole("link", { name: "Observability" }).isVisible());
+  ok("the theme select becomes reachable too — the SAME element, not a second copy",
+    await page.getByLabel("Theme").isVisible());
+
+  await page.getByRole("button", { name: "Close menu" }).click();
+  await page.setViewportSize({ width: 1280, height: 800 }); // back to default for what follows
+
   group("visual — /metrics, including the Reserved tile Experiment 038 added");
   await page.goto(`${server.url}/metrics`);
   for (const label of ["Spent today", "Reserved", "Remaining", "Daily budget", "Per-user budget"]) {

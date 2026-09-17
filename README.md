@@ -8,9 +8,26 @@ at a time.
 
 > **Engineering principle:** understand each layer before introducing abstraction.
 
+## Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/home-light.png" alt="ForgeAI's chat and RAG-search UI, light theme"></td>
+<td width="50%"><img src="docs/screenshots/home-dark.png" alt="The same page in dark theme"></td>
+</tr>
+<tr>
+<td align="center"><sub>Light</sub></td>
+<td align="center"><sub>Dark — follows the OS by default, switchable from the top bar (Experiment 043)</sub></td>
+</tr>
+</table>
+
+<img src="docs/screenshots/mobile-menu.png" width="320" alt="The top bar collapsed into a mobile menu, open">
+
+<sub>Below 640px the top bar collapses into a menu — same controls, one copy of each, not a duplicated set (Experiment 044)</sub>
+
 ## Status
 
-**Experiments 001–042 complete, 043 not yet committed.**
+**Experiments 001–043 complete, 044 not yet committed.**
 `pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
 retrieval benchmark · 12 headless-browser assertions (skipped automatically if
 `chromium` is not installed).
@@ -133,6 +150,14 @@ confirmed itself and Experiment 028 both green on GitHub.
       `useEffect`, after the project's own lint caught the latter as the
       `react-hooks/set-state-in-effect` anti-pattern — see
       [Experiment 043](experiments/043-theme-switcher/README.md)
+- [x] Fixed a real regression 043 introduced: the theme toggle was what
+      tipped the top bar into genuine horizontal overflow below 640px (440px
+      of content in a 375px viewport, the theme `<select>` clipped off-screen
+      and unreachable). A proper mobile menu now collapses it — one copy of
+      each control, not a duplicated mobile/desktop set — plus a README
+      `## Screenshots` section (light, dark, the mobile menu open) up front,
+      before the experiment log, for anyone landing on this as a public repo.
+      See [Experiment 044](experiments/044-mobile-menu-and-readme-gallery/README.md)
 
 ### Currently building
 
@@ -738,6 +763,7 @@ is the deliverable; the code is the apparatus.
 | 041 | [A Real Browser, Not Just curl](experiments/041-headless-browser-verification/README.md) | 🟢 **Verified** — `pnpm visual`, 12 assertions through real headless Chromium; found and worked around a mac13 install-support gap along the way, wired into `pnpm check` as a skippable gate |
 | 042 | [Three of Four](experiments/042-ui-usability-pass/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — conversation history + switching, mobile input/touch-target fixes, login screen context; visual identity ("not convincing") deliberately left for Isaac to direct |
 | 043 | [A Choice, Not Just an Inference](experiments/043-theme-switcher/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — System/Light/Dark override on the existing dark palette, no reload flash, `useSyncExternalStore` after lint caught a `useState`+`useEffect` anti-pattern |
+| 044 | [A Regression, and a First Impression](experiments/044-mobile-menu-and-readme-gallery/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — fixed real mobile overflow 043 introduced, one copy of each nav control not a duplicated set, README screenshots gallery added up front |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
