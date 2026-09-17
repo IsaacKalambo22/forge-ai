@@ -12,12 +12,22 @@ at a time.
 
 <table>
 <tr>
+<td width="50%"><img src="docs/screenshots/login-light.png" alt="ForgeAI's sign-in screen, light theme"></td>
+<td width="50%"><img src="docs/screenshots/login-dark.png" alt="The same sign-in screen in dark theme"></td>
+</tr>
+<tr>
+<td align="center" colspan="2"><sub>Sign in — every route gates on a valid session (Experiment 011/016); there is no separate <code>/login</code> URL because a signed-out visitor cannot reach anything else to link it from</sub></td>
+</tr>
+</table>
+
+<table>
+<tr>
 <td width="50%"><img src="docs/screenshots/home-light.png" alt="ForgeAI's chat and RAG-search UI, light theme"></td>
 <td width="50%"><img src="docs/screenshots/home-dark.png" alt="The same page in dark theme"></td>
 </tr>
 <tr>
 <td align="center"><sub>Light</sub></td>
-<td align="center"><sub>Dark — follows the OS by default, switchable from the top bar (Experiment 043)</sub></td>
+<td align="center"><sub>Dark — follows the OS by default, switchable from the icon toggle in the top bar (Experiment 043; icons in 045)</sub></td>
 </tr>
 </table>
 
@@ -27,9 +37,9 @@ at a time.
 
 ## Status
 
-**Experiments 001–043 complete, 044 not yet committed.**
+**Experiments 001–044 complete, 045 not yet committed.**
 `pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
-retrieval benchmark · 12 headless-browser assertions (skipped automatically if
+retrieval benchmark · 21 headless-browser assertions (skipped automatically if
 `chromium` is not installed).
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -158,6 +168,15 @@ confirmed itself and Experiment 028 both green on GitHub.
       `## Screenshots` section (light, dark, the mobile menu open) up front,
       before the experiment log, for anyone landing on this as a public repo.
       See [Experiment 044](experiments/044-mobile-menu-and-readme-gallery/README.md)
+- [x] Theme toggle rebuilt as an icon control (Monitor/Sun/Moon, one `role="group"`
+      of toggle buttons) — a `<select>`'s `<option>` cannot hold an `<svg>`, so this
+      was a real markup change, not a skin; `pnpm visual`'s locators moved with it.
+      Confirmed the sign-in screen was never a hidden/incomplete flow — it is the
+      root-layout auth gate every route already renders behind — and gave it its
+      first README screenshots, light and dark, next to a real Next.js dev
+      indicator badge found in every prior screenshot and turned off
+      (`devIndicators: false`) since it is not part of the shipped app.
+      See [Experiment 045](experiments/045-professional-ui-pass/README.md)
 
 ### Currently building
 
@@ -764,6 +783,7 @@ is the deliverable; the code is the apparatus.
 | 042 | [Three of Four](experiments/042-ui-usability-pass/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — conversation history + switching, mobile input/touch-target fixes, login screen context; visual identity ("not convincing") deliberately left for Isaac to direct |
 | 043 | [A Choice, Not Just an Inference](experiments/043-theme-switcher/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — System/Light/Dark override on the existing dark palette, no reload flash, `useSyncExternalStore` after lint caught a `useState`+`useEffect` anti-pattern |
 | 044 | [A Regression, and a First Impression](experiments/044-mobile-menu-and-readme-gallery/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — fixed real mobile overflow 043 introduced, one copy of each nav control not a duplicated set, README screenshots gallery added up front |
+| 045 | [A Professional UI Pass](experiments/045-professional-ui-pass/README.md) | 🟢 **Verified — `pnpm visual` 21/21** — icon theme toggle, sign-in confirmed reachable (it's the auth gate, not a missing route) and screenshotted, a dev-only indicator badge found in every prior screenshot and turned off |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
