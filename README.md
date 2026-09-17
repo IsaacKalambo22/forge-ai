@@ -10,7 +10,7 @@ at a time.
 
 ## Status
 
-**Experiments 001–041 complete, 042 not yet committed.**
+**Experiments 001–042 complete, 043 not yet committed.**
 `pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
 retrieval benchmark · 12 headless-browser assertions (skipped automatically if
 `chromium` is not installed).
@@ -125,6 +125,14 @@ confirmed itself and Experiment 028 both green on GitHub.
       class name; a login screen that says what the product is and what an
       account-less visitor should do. The fourth — visual identity — is
       deliberately not attempted; see [Experiment 042](experiments/042-ui-usability-pass/README.md)
+- [x] A manual theme switcher (System / Light / Dark) on top of the dark
+      palette `globals.css` has carried since Experiment 030 — that palette
+      was already complete, only OS-driven with no override. Reachable signed
+      in or out; persists across reloads via a pre-hydration script (no flash
+      of the wrong theme); `useSyncExternalStore`, not `useState` +
+      `useEffect`, after the project's own lint caught the latter as the
+      `react-hooks/set-state-in-effect` anti-pattern — see
+      [Experiment 043](experiments/043-theme-switcher/README.md)
 
 ### Currently building
 
@@ -729,6 +737,7 @@ is the deliverable; the code is the apparatus.
 | 040 | [The CSRF Token That Isn't Needed](experiments/040-csrf-audit/README.md) | 🟢 **Audited, closed** — every cookie is `SameSite=Strict` from one code path, the one state-changing `PUT` never reads it, no CORS widens either; no token added |
 | 041 | [A Real Browser, Not Just curl](experiments/041-headless-browser-verification/README.md) | 🟢 **Verified** — `pnpm visual`, 12 assertions through real headless Chromium; found and worked around a mac13 install-support gap along the way, wired into `pnpm check` as a skippable gate |
 | 042 | [Three of Four](experiments/042-ui-usability-pass/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — conversation history + switching, mobile input/touch-target fixes, login screen context; visual identity ("not convincing") deliberately left for Isaac to direct |
+| 043 | [A Choice, Not Just an Inference](experiments/043-theme-switcher/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — System/Light/Dark override on the existing dark palette, no reload flash, `useSyncExternalStore` after lint caught a `useState`+`useEffect` anti-pattern |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
