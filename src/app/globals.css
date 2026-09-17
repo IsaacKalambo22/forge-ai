@@ -42,8 +42,21 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * Experiment 043 — a manual theme switcher on top of what was previously
+ * OS-only. The two blocks below carry the SAME dark values on purpose and
+ * must be kept in sync if either changes:
+ *
+ *   @media (prefers-color-scheme: dark), guarded by :not([data-theme="light"])
+ *     — the existing OS-driven behavior, now yielding to an explicit choice
+ *   :root[data-theme="dark"], with no media query at all
+ *     — the manual override, so "Dark" means dark regardless of the OS
+ *
+ * `data-theme` is set by components/theme-toggle.tsx and, before hydration
+ * (to avoid a flash of the wrong theme), by the inline script in layout.tsx.
+ */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --background: #09090b;
     --surface: #18181b;
     --foreground: #fafafa;
@@ -64,8 +77,38 @@
   }
 }
 
+:root[data-theme="dark"] {
+  --background: #09090b;
+  --surface: #18181b;
+  --foreground: #fafafa;
+  --muted-foreground: #a1a1aa;
+  --border: #27272a;
+  --primary: #fafafa;
+  --primary-foreground: #18181b;
+  --success: #4ade80;
+  --success-bg: #052e16;
+  --success-border: #14532d;
+  --warning: #fbbf24;
+  --warning-bg: #451a03;
+  --warning-border: #78350f;
+  --destructive: #f87171;
+  --destructive-bg: #450a0a;
+  --destructive-border: #7f1d1d;
+  --info: #60a5fa;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  /* The switch itself should read as a deliberate transition, not a jump cut —
+     the same 150ms every color-affecting Tailwind utility here already uses
+     via `transition-colors`. Respects reduced-motion below. */
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
 }

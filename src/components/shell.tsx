@@ -6,6 +6,7 @@ import { users } from "@/lib/users";
 
 import { NavLinks } from "@/components/nav-links";
 import { SignOutButton } from "@/components/sign-out-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 // Server Component: resolves the signed-in username from the session cookie
 // so the browser never has to ask for it separately.
@@ -38,7 +39,10 @@ export async function TopBar() {
           </Link>
           <NavLinks />
         </div>
-        {showAuthControls && <CurrentUser />}
+        <div className="flex items-center gap-3">
+          <ThemeToggle />
+          {showAuthControls && <CurrentUser />}
+        </div>
       </div>
     </header>
   );
