@@ -10,8 +10,8 @@ at a time.
 
 ## Status
 
-**Experiments 001–034 complete, 035 committed and not yet pushed.**
-`pnpm check` → all gates pass locally: types · lint · 778 unit · 39 end-to-end ·
+**Experiments 001–035 complete, 036 committed and not yet pushed.**
+`pnpm check` → all gates pass locally: types · lint · 822 unit · 39 end-to-end ·
 retrieval benchmark.
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -80,6 +80,10 @@ confirmed itself and Experiment 028 both green on GitHub.
 - [x] Retrieval latency now traced separately from route-level time-to-first-byte
       — reused `telemetry.record()`, no new subsystem; confirmed live that the
       route timer for a streaming route was measuring almost nothing
+- [x] `guard.ts` — the app's entire auth/rate-limit/budget boundary — now has
+      44 unit assertions; `tests/run.mts` sets `FORGE_DB_PATH=:memory:` before
+      test discovery, which is what made its DB-backed singleton calls safe
+      to test at all
 
 ### Currently building
 
@@ -663,6 +667,7 @@ is the deliverable; the code is the apparatus.
 | 033 | [/metrics Time Range, and a Deeper Bug](experiments/033-metrics-time-range/README.md) | 🟢 **Feature shipped; bug found and fixed in 034** — `/metrics` was silently reading an always-empty module instance (fixed here); uncovered that 025's boot warm-up never reaches the routes that serve real traffic |
 | 034 | [Wait for the Index, Don't Just Check It](experiments/034-index-wait-not-check/README.md) | 🟢 **Verified live** — a fresh server's first `/api/ask`/`/api/agent` now succeeds (200, real sources) instead of a spurious 503 |
 | 035 | [Which Layer Owns the Latency](experiments/035-retrieval-tracing/README.md) | 🟢 **Verified live** — retrieval now has its own `/metrics` row; confirmed the route-level timer for a streaming route measures time-to-first-byte (~7ms), not real work (~15-680ms) |
+| 036 | [Testing the Boundary Itself](experiments/036-guard-unit-tests/README.md) | 🟢 **Verified** — 44 new assertions on `guard.ts` (auth, rate limiting, budget), previously untested; found and fixed the reason why (coupling to a DB singleton, not neglect) |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
