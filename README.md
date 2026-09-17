@@ -10,8 +10,8 @@ at a time.
 
 ## Status
 
-**Experiments 001–036 complete, 037 not yet committed.**
-`pnpm check` → all gates pass locally: types · lint · 849 unit · 39 end-to-end ·
+**Experiments 001–037 complete, 038 not yet committed.**
+`pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
 retrieval benchmark.
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -91,6 +91,10 @@ confirmed itself and Experiment 028 both green on GitHub.
       constant with `ai.ts`) before returning, and a concurrent second request
       is refused by the first's outstanding claim alone — verified with $0
       recorded spend on either side
+- [x] `/metrics`'s budget display now agrees with what `checkBudget()` actually
+      enforces — a `reserved` field alongside `spent_today`, and `remaining`
+      now subtracts both; verified live against a real in-flight request
+      (`reserved` moved from $0 to $0.0256 and back)
 
 ### Currently building
 
@@ -142,10 +146,6 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
       used by `worthCaching()` — this project has never made a live call with
       `cache_control` set to check
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
-- [ ] `budgetStatus()` (surfaced on `/metrics`) still reports recorded spend only,
-      not outstanding reservations — Experiment 037 made the enforcement check
-      reservation-aware but left the operator-facing display as it was, a
-      separate, smaller decision
 - [ ] Headless-browser verification for UI changes — Experiment 030 could only
       check rendered markup via `curl`, not an actual screenshot
 - [ ] Tracing — generation-phase latency specifically; retrieval-phase latency
@@ -679,6 +679,7 @@ is the deliverable; the code is the apparatus.
 | 035 | [Which Layer Owns the Latency](experiments/035-retrieval-tracing/README.md) | 🟢 **Verified live** — retrieval now has its own `/metrics` row; confirmed the route-level timer for a streaming route measures time-to-first-byte (~7ms), not real work (~15-680ms) |
 | 036 | [Testing the Boundary Itself](experiments/036-guard-unit-tests/README.md) | 🟢 **Verified** — 44 new assertions on `guard.ts` (auth, rate limiting, budget), previously untested; found and fixed the reason why (coupling to a DB singleton, not neglect) |
 | 037 | [Closing the Ceiling's Lip](experiments/037-budget-reservation/README.md) | 🟢 **Verified** — a spending reservation staked before the model call, not after; a second concurrent request is now refused with $0 recorded on either side |
+| 038 | [Making the Display Agree With the Check](experiments/038-budget-status-reservations/README.md) | 🟢 **Verified live** — `/metrics`'s budget tiles now include outstanding reservations, not just recorded spend; watched `reserved` move from $0 to $0.0256 and back across a real request |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

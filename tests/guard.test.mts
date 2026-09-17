@@ -306,5 +306,24 @@ withEnv({
   eq("daily budget as configured", status.daily_budget, formatCost(dollars(5)));
   eq("per-user budget as configured", status.per_user_budget, formatCost(dollars(1)));
   ok("spent_today is a cost string", status.spent_today.startsWith("$"));
+  ok("reserved is a cost string", status.reserved.startsWith("$"));
   ok("remaining is a cost string", status.remaining.startsWith("$"));
+});
+
+// Experiment 038. 037 made checkBudget() reservation-aware; budgetStatus() —
+// the number an operator actually reads on /metrics — was left reporting
+// recorded spend only, a deliberate but separate decision recorded in 037's
+// README. This closes it.
+group("guard — budgetStatus(): reserved tracks the reservation module directly");
+withEnv({ APP_SECRET: SECRET, NODE_ENV: "test", FORGE_DAILY_BUDGET_USD: "5" }, () => {
+  eq("starts in agreement with reservations.activeTotal()",
+    budgetStatus().reserved, formatCost(reservations.activeTotal()));
+
+  const result = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  ok("succeeds", !(result instanceof Response));
+
+  eq("still in agreement after staking a new claim",
+    budgetStatus().reserved, formatCost(reservations.activeTotal()));
+  ok("and it moved — the claim this request just staked is not invisible",
+    budgetStatus().reserved !== formatCost(0));
 });

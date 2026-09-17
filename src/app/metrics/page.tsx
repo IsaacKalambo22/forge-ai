@@ -75,10 +75,14 @@ export default async function MetricsPage(props: PageProps<"/metrics">) {
 
       <section className="flex flex-col gap-3">
         <SectionHeading>Budget</SectionHeading>
-        <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-4">
+        <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-5">
           <div>
             <dt className="text-muted-foreground">Spent today</dt>
             <dd className="mt-0.5 font-medium text-foreground">{budget.spent_today}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Reserved</dt>
+            <dd className="mt-0.5 font-medium text-foreground">{budget.reserved}</dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Remaining</dt>

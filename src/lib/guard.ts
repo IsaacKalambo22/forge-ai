@@ -283,14 +283,27 @@ function checkBudget(userId: string, route: RouteName, requestId: string): Respo
   return null;
 }
 
-/** For the metrics endpoint — what is left, in nanodollars. */
+/**
+ * For the metrics endpoint — what is left, in nanodollars.
+ *
+ * Experiment 037 made the ENFORCEMENT check (`checkBudget`, above) count
+ * outstanding reservations; this display was left reporting recorded spend
+ * only, a deliberately separate decision. Experiment 038 closes that gap:
+ * `reserved` is its own field, kept apart from `spent_today` because the two
+ * mean different things — one is permanent billing history, the other is a
+ * claim that is usually gone within seconds — and `remaining` now subtracts
+ * both, so the number an operator reads as "what can still be spent" agrees
+ * with the number `checkBudget` actually authorizes against.
+ */
 export function budgetStatus() {
   const total = DAILY_TOTAL_BUDGET();
   const spent = usage.spentTotal();
+  const reserved = reservations.activeTotal();
   return {
     daily_budget: formatCost(total),
     spent_today: formatCost(spent),
-    remaining: formatCost(Math.max(0, total - spent)),
+    reserved: formatCost(reserved),
+    remaining: formatCost(Math.max(0, total - spent - reserved)),
     per_user_budget: formatCost(DAILY_USER_BUDGET()),
   };
 }
