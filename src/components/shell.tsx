@@ -4,6 +4,7 @@ import Link from "next/link";
 import { authRequired, currentUserId } from "@/lib/guard";
 import { users } from "@/lib/users";
 
+import { MobileMenu } from "@/components/mobile-menu";
 import { NavLinks } from "@/components/nav-links";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -31,18 +32,20 @@ export async function TopBar() {
   const showAuthControls = authRequired();
 
   return (
-    <header className="border-b border-border bg-surface">
+    <header className="relative border-b border-border bg-surface">
       <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-6">
-        <div className="flex items-center gap-6">
-          <Link href="/" className="text-sm font-semibold tracking-tight text-foreground">
-            Forge AI
-          </Link>
+        <Link href="/" className="text-sm font-semibold tracking-tight text-foreground">
+          Forge AI
+        </Link>
+        {/* Experiment 044. One copy of each control, not a desktop set and a
+            mobile set — MobileMenu's own docstring explains why that matters. */}
+        <MobileMenu>
           <NavLinks />
-        </div>
-        <div className="flex items-center gap-3">
-          <ThemeToggle />
-          {showAuthControls && <CurrentUser />}
-        </div>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            {showAuthControls && <CurrentUser />}
+          </div>
+        </MobileMenu>
       </div>
     </header>
   );
