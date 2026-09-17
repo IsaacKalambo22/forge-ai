@@ -86,18 +86,23 @@ export default function Ask() {
     <section className="flex w-full flex-col gap-3 border-t border-border pt-8">
       <h2 className="text-sm font-semibold text-foreground">Ask the notebook</h2>
 
-      <form onSubmit={run} className="flex gap-2">
-        <Select
-          aria-label="Mode"
-          value={mode}
-          onChange={(event) => setMode(event.target.value as Mode)}
-        >
-          {Object.entries(MODES).map(([key, { label }]) => (
-            <option key={key} value={key}>
-              {label}
-            </option>
-          ))}
-        </Select>
+      <form onSubmit={run} className="flex flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor="ask-mode" className="text-sm text-muted-foreground">
+            Mode
+          </label>
+          <Select
+            id="ask-mode"
+            value={mode}
+            onChange={(event) => setMode(event.target.value as Mode)}
+          >
+            {Object.entries(MODES).map(([key, { label }]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </div>
         <Input
           value={question}
           onChange={(event) => setQuestion(event.target.value)}

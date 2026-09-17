@@ -98,19 +98,24 @@ export default function Chat() {
 
   return (
     <section className="flex w-full flex-col gap-6">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-foreground">Chat</h2>
-        <Select
-          aria-label="Persona"
-          value={persona}
-          onChange={(event) => changePersona(event.target.value as PersonaId)}
-        >
-          {PERSONA_IDS.map((id) => (
-            <option key={id} value={id}>
-              {id}
-            </option>
-          ))}
-        </Select>
+        <div className="flex items-center gap-2">
+          <label htmlFor="chat-persona" className="text-sm text-muted-foreground">
+            Persona
+          </label>
+          <Select
+            id="chat-persona"
+            value={persona}
+            onChange={(event) => changePersona(event.target.value as PersonaId)}
+          >
+            {PERSONA_IDS.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </Select>
+        </div>
       </div>
 
       {analysis && (

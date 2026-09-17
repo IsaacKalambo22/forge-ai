@@ -146,3 +146,54 @@ environment, so verification here was `curl` against rendered HTML plus `pnpm ch
 — not a visual screenshot. Worth running `/run-skill-generator` or installing a
 headless-browser driver before the next UI slice, so future changes get an actual
 pixel check instead of a markup check.
+
+## Continued: an accessibility/interaction pass
+
+The original directive named accessibility and interaction quality as their own
+"Slice" — never given a deliberate pass. Audited rather than assumed:
+
+**Color contrast:** computed WCAG contrast ratios for every text/background pair
+in `globals.css`, light and dark. All pass AA (4.63:1 to 16.97:1). The one pair
+that fails — `--border` against `--background`, 1.22:1 — is a deliberate design
+choice, not an oversight: the directive itself said to separate content with
+whitespace and hierarchy rather than borders, and every bordered control
+(`Input`, `Select`, table rows) is also distinguishable by its background fill.
+Recorded rather than "fixed" by darkening every border in the system, which would
+have fought the design brief for a borderline compliance point.
+
+**What was actually wrong, found and fixed:**
+
+- `login.tsx` — no `required`, no `autoFocus`, and the error message had no
+  `aria-describedby`/`aria-invalid` link to the fields that caused it. A screen
+  reader user got the error announced (it already had `role="alert"`) but had no
+  way to know WHICH field to fix. `ErrorState` in `components/ui.tsx` gained an
+  optional `id` prop so a caller can wire that link — one addition, reusable by
+  every form, not just this one.
+- `chat.tsx` / `ask.tsx` — the persona/mode `<Select>` controls had an
+  `aria-label` (an accessible name for assistive tech) but no VISIBLE label —
+  fine for a screen reader, invisible to everyone else, including a sighted user
+  relying on the label rather than inferring the control's purpose from a bare
+  dropdown. Added a `<label htmlFor=...>` next to each, matching the pattern
+  `login.tsx` already established, and removed the now-redundant `aria-label`
+  (the visible label supplies the accessible name itself).
+- Both forms' header/control rows lacked `flex-wrap`, an overflow risk at phone
+  width that the original mobile pass didn't specifically test with three
+  controls in one row (`ask.tsx`'s mode picker + question input + button).
+
+## Decisions (continued)
+
+**A visible label beats `aria-label` whenever there's room for one.** `aria-label`
+exists for controls that genuinely can't carry visible text (an icon-only button).
+A `<Select>` with space beside it should use a real `<label>` — it helps everyone,
+not just assistive-tech users, and it's one the sighted developer maintaining this
+code will also read correctly six months from now, unlike a string that only
+exists in the accessibility tree.
+
+## Status (continued)
+
+| Piece | State |
+| --- | --- |
+| Contrast audit — all text pairs, light + dark | ✅ Verified (computed WCAG ratios) |
+| `login.tsx` — required fields, autofocus, error-field association | ✅ Verified (`pnpm check`, live render) |
+| `chat.tsx` / `ask.tsx` — visible labels on Select controls | ✅ Verified (live render, `for`/`id` present) |
+| Form rows wrap at narrow widths | ✅ Verified (`flex-wrap` added, `pnpm check`) |

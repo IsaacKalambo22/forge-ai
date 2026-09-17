@@ -103,9 +103,10 @@ export function EmptyState({
   );
 }
 
-export function ErrorState({ message }: { message: string }) {
+export function ErrorState({ message, id }: { message: string; id?: string }) {
   return (
     <p
+      id={id}
       role="alert"
       className="rounded-md border border-destructive-border bg-destructive-bg px-3 py-2 text-sm text-destructive"
     >

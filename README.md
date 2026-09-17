@@ -115,7 +115,11 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
       first request) is fixed ([034](experiments/034-index-wait-not-check/README.md)),
       but the flag itself still doesn't agree across layers, which is why
       `/metrics`'s index badge can still show stale "Building"
-- [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every turn
+- [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every
+      turn, but measured (Experiment 032's `estimateTokens`) at ~306 tokens
+      combined for the default persona + all three tools: under the 1024
+      minimum, so `worthCaching()` would veto it today. Revisit if the tool
+      count or persona prompts grow enough to cross the floor
 - [ ] Whether the real provider-side minimum matches the documented 1024 tokens
       used by `worthCaching()` — this project has never made a live call with
       `cache_control` set to check

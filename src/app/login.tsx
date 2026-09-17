@@ -53,9 +53,13 @@ export default function Login() {
           id="username"
           name="username"
           autoComplete="username"
+          autoFocus
+          required
           placeholder="Username"
           value={username}
           onChange={(event) => setUsername(event.target.value)}
+          aria-invalid={error !== null}
+          aria-describedby={error !== null ? "login-error" : undefined}
         />
       </div>
       <div className="flex flex-col gap-1.5">
@@ -65,15 +69,18 @@ export default function Login() {
           name="password"
           type="password"
           autoComplete="current-password"
+          required
           placeholder="Password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
+          aria-invalid={error !== null}
+          aria-describedby={error !== null ? "login-error" : undefined}
         />
       </div>
       <Button type="submit" disabled={busy}>
         {busy ? "Signing in…" : "Sign in"}
       </Button>
-      {error && <ErrorState message={error} />}
+      {error && <ErrorState id="login-error" message={error} />}
     </form>
   );
 }
