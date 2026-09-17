@@ -10,8 +10,8 @@ at a time.
 
 ## Status
 
-**Experiments 001–035 complete, 036 committed and not yet pushed.**
-`pnpm check` → all gates pass locally: types · lint · 822 unit · 39 end-to-end ·
+**Experiments 001–036 complete, 037 not yet committed.**
+`pnpm check` → all gates pass locally: types · lint · 849 unit · 39 end-to-end ·
 retrieval benchmark.
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -84,6 +84,13 @@ confirmed itself and Experiment 028 both green on GitHub.
       44 unit assertions; `tests/run.mts` sets `FORGE_DB_PATH=:memory:` before
       test discovery, which is what made its DB-backed singleton calls safe
       to test at all
+- [x] Budget reservation — `checkBudget()` used to authorize a request against
+      spending so far, so two requests arriving together both read the same
+      under-budget figure and both proceeded ("a ceiling with a lip"); it now
+      stakes a conservative claim (bounded by `MAX_OUTPUT_TOKENS`, one shared
+      constant with `ai.ts`) before returning, and a concurrent second request
+      is refused by the first's outstanding claim alone — verified with $0
+      recorded spend on either side
 
 ### Currently building
 
@@ -135,7 +142,10 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
       used by `worthCaching()` — this project has never made a live call with
       `cache_control` set to check
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
-- [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
+- [ ] `budgetStatus()` (surfaced on `/metrics`) still reports recorded spend only,
+      not outstanding reservations — Experiment 037 made the enforcement check
+      reservation-aware but left the operator-facing display as it was, a
+      separate, smaller decision
 - [ ] Headless-browser verification for UI changes — Experiment 030 could only
       check rendered markup via `curl`, not an actual screenshot
 - [ ] Tracing — generation-phase latency specifically; retrieval-phase latency
@@ -668,6 +678,7 @@ is the deliverable; the code is the apparatus.
 | 034 | [Wait for the Index, Don't Just Check It](experiments/034-index-wait-not-check/README.md) | 🟢 **Verified live** — a fresh server's first `/api/ask`/`/api/agent` now succeeds (200, real sources) instead of a spurious 503 |
 | 035 | [Which Layer Owns the Latency](experiments/035-retrieval-tracing/README.md) | 🟢 **Verified live** — retrieval now has its own `/metrics` row; confirmed the route-level timer for a streaming route measures time-to-first-byte (~7ms), not real work (~15-680ms) |
 | 036 | [Testing the Boundary Itself](experiments/036-guard-unit-tests/README.md) | 🟢 **Verified** — 44 new assertions on `guard.ts` (auth, rate limiting, budget), previously untested; found and fixed the reason why (coupling to a DB singleton, not neglect) |
+| 037 | [Closing the Ceiling's Lip](experiments/037-budget-reservation/README.md) | 🟢 **Verified** — a spending reservation staked before the model call, not after; a second concurrent request is now refused with $0 recorded on either side |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

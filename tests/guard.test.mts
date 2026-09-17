@@ -238,36 +238,44 @@ withEnv({
 // guard() reserves before returning is what closes that window.
 const RESERVED_FOR_CHAT = COST.chat * MAX_OUTPUT_TOKENS * PRICING[DEFAULT_MODEL].output;
 
+// Scoped to the PER-USER budget, not the total: every group above this one
+// already ran guard() successfully several times over, and those reservations
+// are still outstanding (their 5-minute TTL far outlives this whole test
+// file). The total budget check would see all of that accumulated state; the
+// per-user one, keyed to a fresh realUser() nobody else has touched, is
+// isolated from it the same way the existing per-user tests above already are.
 group("guard — reservation: a second concurrent request is refused before either bills a cent");
 withEnv({
   APP_SECRET: SECRET, NODE_ENV: "test",
   // Room for one chat reservation and a bit more, not two.
-  FORGE_DAILY_BUDGET_USD: String((RESERVED_FOR_CHAT * 1.5) / 1e9),
+  FORGE_USER_DAILY_BUDGET_USD: String((RESERVED_FOR_CHAT * 1.5) / 1e9),
 }, () => {
-  const first = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  const userId = realUser();
+  const first = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
   ok("the first request succeeds and stakes its claim", !(first instanceof Response));
 
-  const second = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
-  ok("the second is refused by the FIRST's outstanding reservation — not by recorded spend, " +
-    "there is none yet", second instanceof Response);
+  const second = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
+  ok("a second request from the SAME user is refused by the first's outstanding " +
+    "reservation — not by recorded spend, there is none yet", second instanceof Response);
   if (second instanceof Response) eq("429", second.status, 429);
 });
 
 group("guard — reservation: releasing a claim frees the budget it held");
 withEnv({
   APP_SECRET: SECRET, NODE_ENV: "test",
-  FORGE_DAILY_BUDGET_USD: String((RESERVED_FOR_CHAT * 1.5) / 1e9),
+  FORGE_USER_DAILY_BUDGET_USD: String((RESERVED_FOR_CHAT * 1.5) / 1e9),
 }, () => {
+  const userId = realUser();
   const heldRequestId = randomUUID();
-  const first = guard(req({ cookie: cookieHeader(realUser()) }), "chat", heldRequestId);
+  const first = guard(req({ cookie: cookieHeader(userId) }), "chat", heldRequestId);
   ok("succeeds", !(first instanceof Response));
 
-  const blocked = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  const blocked = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
   ok("a second is blocked while the first's claim is outstanding", blocked instanceof Response);
 
   reservations.release(heldRequestId);
 
-  const afterRelease = guard(req({ cookie: cookieHeader(realUser()) }), "chat", randomUUID());
+  const afterRelease = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
   ok("a third succeeds once the held claim is released — same as a route's `finally` would do",
     !(afterRelease instanceof Response));
 });

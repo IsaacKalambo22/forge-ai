@@ -20,7 +20,7 @@ const tables = (d.prepare(
   "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
 ).all() as { name: string }[]).map((r) => r.name).filter((n) => !n.startsWith("sqlite_"));
 eq("every table exists", tables,
-  ["conversations", "revoked_sessions", "turns", "usage", "users"]);
+  ["conversations", "reservations", "revoked_sessions", "turns", "usage", "users"]);
 
 group("db — derived data does NOT live in the application database");
 // Experiment 025. Migration 5 put the embedding cache here; migration 6 moved
