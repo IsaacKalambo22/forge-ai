@@ -5,6 +5,7 @@ import { indexReady } from "@/lib/knowledge";
 import { embedCache, EMBED_CACHE_PATH } from "@/lib/embedcache";
 import { EMBEDDING_MODEL } from "@/lib/embeddings";
 import { observe } from "@/lib/observe";
+import { parseSpendWindow, SPEND_WINDOWS } from "@/lib/metrics-windows";
 
 /**
  * The read side of Experiment 014. Structured logs answer "what happened to
@@ -23,12 +24,17 @@ export async function GET(request: Request) {
     const auth = guard(request, "metrics");
     if (auth instanceof Response) return auth;
 
+    // Experiment 033: a caller-chosen window, whitelisted (metrics-windows.ts)
+    // so an arbitrary value can't turn into an arbitrary-width SQL scan.
+    const spendWindow = parseSpendWindow(new URL(request.url).searchParams.get("window"));
+
     // Experiment 017: latency and status alone do not say what the service
     // COST to run. Spending is the other half of knowing how it is behaving.
     return Response.json({
       ...currentSnapshot(),
       budget: budgetStatus(),
-      spend_24h: usage.byRoute(),
+      spend_window: spendWindow,
+      spend: usage.byRoute(SPEND_WINDOWS[spendWindow]),
       // Experiment 025. 014 reported how fast and how often, 017 how much.
       // Whether the thing can answer at all belongs beside them — it is the
       // difference between "slow" and "still starting", which a latency number
