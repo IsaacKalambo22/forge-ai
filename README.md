@@ -11,7 +11,7 @@ at a time.
 ## Status
 
 **Experiments 001–029 complete, 030 committed and not yet pushed.**
-`pnpm check` → all gates pass locally: types · lint · 710 unit · 39 end-to-end ·
+`pnpm check` → all gates pass locally: types · lint · 742 unit · 39 end-to-end ·
 retrieval benchmark.
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -57,6 +57,8 @@ confirmed itself and Experiment 028 both green on GitHub.
 - [x] Professional UI shell — design tokens, shared primitives, a `TopBar` +
       root-layout auth gate shared by every route, and `/metrics` rendering the
       real `GET /api/metrics` data (no fabricated numbers)
+- [x] Chat's state machine extracted to `src/lib/chat-state.ts` and tested —
+      the first `src/app/` logic tested the same way as `agent.ts`/`ndjson.ts`
 
 ### Currently building
 
@@ -97,7 +99,9 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 - [ ] Prefix caching on `/api/ask`
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
-- [ ] Client-component tests — `chat.tsx` state handling is only hand-clicked
+- [ ] `ask.tsx` still hand-rolls its own state — the extraction only covered
+      `chat.tsx`, since that was the concrete gap, not a policy of extracting
+      everything
 - [ ] Headless-browser verification for UI changes — Experiment 030 could only
       check rendered markup via `curl`, not an actual screenshot
 - [ ] Tracing — which layer owns the latency, not just the total

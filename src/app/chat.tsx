@@ -1,38 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useReducer, useState } from "react";
 
-import { MAX_TURNS, type ChatMessage, type StreamEvent } from "@/lib/messages";
+import { MAX_TURNS, type StreamEvent } from "@/lib/messages";
 import { readNdjsonStream } from "@/lib/ndjson";
-import type { ConversationAnalysis } from "@/lib/analysis";
 import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
+import { chatReducer, initialChatState } from "@/lib/chat-state";
 
 import { Button, EmptyState, ErrorState, Input, Select } from "@/components/ui";
 
 export default function Chat() {
   const [input, setInput] = useState("");
-  const [persona, setPersona] = useState<PersonaId>("default");
-  // Experiment 015. This array is now only what the screen SHOWS. The server
-  // holds the real transcript; this is a local echo of it, and the id below is
-  // the only handle the browser has on the real thing.
-  //
-  // Before 015 this array WAS the conversation — it was sent in full on every
-  // request, which meant the browser could claim the model had said anything.
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // The partial reply, rebuilt as deltas arrive. It is NOT in `messages` yet —
-  // an incomplete turn must not become part of the conversation history.
-  const [streaming, setStreaming] = useState("");
-  const [meta, setMeta] = useState<string | null>(null);
-  // A typed object, not a string. This is the whole point of structured output:
-  // `analysis.title` is a field the UI can use, not prose to be parsed.
-  const [analysis, setAnalysis] = useState<ConversationAnalysis | null>(null);
-  const [analysing, setAnalysing] = useState(false);
-  // Tool activity for the turn in progress. Showing it is the point: the loop
-  // is invisible otherwise, and an agent you cannot watch is one you cannot debug.
-  const [activity, setActivity] = useState<string[]>([]);
+  // Effects (fetch, the stream reader) live here. What each event MEANS for
+  // the screen lives in chatReducer (src/lib/chat-state.ts) — a pure function,
+  // tested in tests/chat-state.test.mts without a browser.
+  const [state, dispatch] = useReducer(chatReducer, initialChatState());
+  const {
+    persona, messages, conversationId, loading, error, streaming, meta, analysis, analysing,
+    activity,
+  } = state;
 
   async function send(event: React.FormEvent) {
     event.preventDefault();
@@ -40,16 +26,8 @@ export default function Chat() {
     const question = input.trim();
     if (question === "" || loading) return;
 
-    const next: ChatMessage[] = [...messages, { role: "user", content: question }];
-
-    setMessages(next);
+    dispatch({ type: "send_started", question });
     setInput("");
-    setLoading(true);
-    setError(null);
-
-    setStreaming("");
-    setMeta(null);
-    setActivity([]);
 
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -68,8 +46,10 @@ export default function Chat() {
     // validation. Those responses are still ordinary JSON.
     if (!response.ok || !response.body) {
       const data = await response.json().catch(() => ({}));
-      setError(data.error ?? `Request failed with ${response.status}`);
-      setLoading(false);
+      dispatch({
+        type: "send_rejected",
+        error: data.error ?? `Request failed with ${response.status}`,
+      });
       return;
     }
 
@@ -79,60 +59,21 @@ export default function Chat() {
     let answer = "";
 
     await readNdjsonStream<StreamEvent>(response.body, (event) => {
-      if (event.type === "conversation") {
-        // Arrives before any model output, so a turn that fails halfway still
-        // leaves the browser able to resume the right conversation.
-        setConversationId(event.id);
-      } else if (event.type === "text") {
-        answer += event.text;
-        setStreaming(answer);
-      } else if (event.type === "done") {
-        setMeta(
-          `${event.usage.input_tokens} in / ${event.usage.output_tokens} out · ` +
-            `stop_reason: ${event.stop_reason} · ${event.model}`,
-        );
-      } else if (event.type === "tool_use") {
-        setActivity((previous) => [
-          ...previous,
-          `→ ${event.name}(${JSON.stringify(event.input)})`,
-        ]);
-      } else if (event.type === "tool_result") {
-        setActivity((previous) => [
-          ...previous,
-          `${event.is_error ? "✗" : "←"} ${event.name}: ${event.output}`,
-        ]);
-      } else if (event.type === "error") {
-        // Reported on an HTTP 200: the status was already sent.
-        setError(event.error);
-      }
+      if (event.type === "text") answer += event.text;
+      dispatch({ type: "stream_event", event });
     });
 
-    // Only a completed reply joins the history.
-    if (answer !== "") {
-      setMessages((previous) => [...previous, { role: "assistant", content: answer }]);
-    }
-    setStreaming("");
-    setLoading(false);
+    dispatch({ type: "send_finished", answer });
   }
 
-  // The persona is fixed when the server creates a conversation, so changing it
-  // starts a new one rather than silently applying to a transcript whose
-  // earlier turns were produced under different instructions.
   function changePersona(next: PersonaId) {
-    setPersona(next);
-    setConversationId(null);
-    setMessages([]);
-    setAnalysis(null);
-    setMeta(null);
-    setActivity([]);
-    setError(null);
+    dispatch({ type: "persona_changed", persona: next });
   }
 
   async function analyse() {
     if (conversationId === null || messages.length === 0 || analysing) return;
 
-    setAnalysing(true);
-    setError(null);
+    dispatch({ type: "analyse_started" });
 
     // Not a stream, so a real status code is available here.
     const response = await fetch("/api/analyze", {
@@ -144,12 +85,13 @@ export default function Chat() {
     const data = await response.json();
 
     if (!response.ok) {
-      setError(data.error ?? `Request failed with ${response.status}`);
+      dispatch({
+        type: "analyse_failed",
+        error: data.error ?? `Request failed with ${response.status}`,
+      });
     } else {
-      setAnalysis(data.analysis);
+      dispatch({ type: "analyse_succeeded", analysis: data.analysis });
     }
-
-    setAnalysing(false);
   }
 
   const remaining = MAX_TURNS - messages.length;
