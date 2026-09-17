@@ -145,7 +145,22 @@ export default function Chat() {
     <section className="flex w-full flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-foreground">Chat</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor="chat-conversation" className="text-sm text-muted-foreground">
+            Conversation
+          </label>
+          <Select
+            id="chat-conversation"
+            value={conversationId ?? NEW_CONVERSATION}
+            onChange={(event) => switchConversation(event.target.value)}
+          >
+            <option value={NEW_CONVERSATION}>New conversation</option>
+            {conversations.map((c) => (
+              <option key={c.id} value={c.id}>
+                {conversationLabel(c)}
+              </option>
+            ))}
+          </Select>
           <label htmlFor="chat-persona" className="text-sm text-muted-foreground">
             Persona
           </label>
