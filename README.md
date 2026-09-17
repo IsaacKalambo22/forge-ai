@@ -10,7 +10,7 @@ at a time.
 
 ## Status
 
-**Experiments 001–038 complete, 039 not yet committed.**
+**Experiments 001–039 complete, 040 not yet committed.**
 `pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
 retrieval benchmark.
 
@@ -102,6 +102,12 @@ confirmed itself and Experiment 028 both green on GitHub.
       was not cosmetic staleness but a badge that could read "Building" forever.
       Verified live: `ready` flipped true from a build that ran entirely in a
       different layer (`instrumentation.ts`'s own warm-up)
+- [x] CSRF, audited rather than patched — every cookie this app ever issues comes
+      from one function (`sessionCookie()`), unconditionally `SameSite=Strict`
+      since Experiment 012 and already regression-tested; the one state-changing
+      `PUT` (registration) never reads the cookie at all, and no CORS
+      configuration exists anywhere to widen either. No token added — it would
+      duplicate a defense that already covers the one path that matters
 
 ### Currently building
 
@@ -153,7 +159,6 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
       is now measured and visible on `/metrics` ([035](experiments/035-retrieval-tracing/README.md)),
       but the model-call phase is still invisible, and still blocked on the credential
 - [ ] Log shipping and retention — stdout is enough for one process, not two
-- [ ] CSRF token — slightly more pressing now there is a state-changing `PUT`
 - [ ] Moving the rate limiter and telemetry into the store — deliberately deferred
       in 015: hot-path state, and a disk write per request fixes nothing until
       there is a second instance
@@ -682,6 +687,7 @@ is the deliverable; the code is the apparatus.
 | 037 | [Closing the Ceiling's Lip](experiments/037-budget-reservation/README.md) | 🟢 **Verified** — a spending reservation staked before the model call, not after; a second concurrent request is now refused with $0 recorded on either side |
 | 038 | [Making the Display Agree With the Check](experiments/038-budget-status-reservations/README.md) | 🟢 **Verified live** — `/metrics`'s budget tiles now include outstanding reservations, not just recorded spend; watched `reserved` move from $0 to $0.0256 and back across a real request |
 | 039 | [Making `indexReady()` Actually Cross-Layer](experiments/039-index-ready-cross-layer/README.md) | 🟢 **Verified live** — the badge reads the shared embedding cache instead of a per-layer flag; confirmed `ready` flips true from a build that ran entirely in a different module instance |
+| 040 | [The CSRF Token That Isn't Needed](experiments/040-csrf-audit/README.md) | 🟢 **Audited, closed** — every cookie is `SameSite=Strict` from one code path, the one state-changing `PUT` never reads it, no CORS widens either; no token added |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
