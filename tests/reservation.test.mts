@@ -7,7 +7,7 @@ import { createUser } from "@/lib/users";
 import {
   reserve, release, activeTotal, activeByUser, purgeExpired, countActive,
 } from "@/lib/reservation";
-import { group, ok, eq } from "./harness.mts";
+import { group, eq } from "./harness.mts";
 
 const T = 1_700_000_000_000;
 const fresh = () => openDatabase(":memory:");

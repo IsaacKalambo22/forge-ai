@@ -10,7 +10,7 @@ at a time.
 
 ## Status
 
-**Experiments 001–040 complete, 041 not yet committed.**
+**Experiments 001–041 complete, 042 not yet committed.**
 `pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
 retrieval benchmark · 12 headless-browser assertions (skipped automatically if
 `chromium` is not installed).
@@ -116,6 +116,15 @@ confirmed itself and Experiment 028 both green on GitHub.
       grepped HTML; wired into `pnpm check` as a 7th gate that skips cleanly
       when chromium isn't installed, the same shape `verify` uses for a
       missing credential
+- [x] Three of four UI-usability fixes Isaac reported by using the app: real
+      conversation history (`GET /api/conversations`, previously built and
+      never exposed) so "cannot navigate" between past conversations is
+      closed; mobile inputs fixed from 14px to 16px (the iOS Safari
+      zoom-on-focus threshold) and touch targets from ~32-36px to the 44px
+      minimum, verified against real computed styles, not assumed from a
+      class name; a login screen that says what the product is and what an
+      account-less visitor should do. The fourth — visual identity — is
+      deliberately not attempted; see [Experiment 042](experiments/042-ui-usability-pass/README.md)
 
 ### Currently building
 
@@ -719,6 +728,7 @@ is the deliverable; the code is the apparatus.
 | 039 | [Making `indexReady()` Actually Cross-Layer](experiments/039-index-ready-cross-layer/README.md) | 🟢 **Verified live** — the badge reads the shared embedding cache instead of a per-layer flag; confirmed `ready` flips true from a build that ran entirely in a different module instance |
 | 040 | [The CSRF Token That Isn't Needed](experiments/040-csrf-audit/README.md) | 🟢 **Audited, closed** — every cookie is `SameSite=Strict` from one code path, the one state-changing `PUT` never reads it, no CORS widens either; no token added |
 | 041 | [A Real Browser, Not Just curl](experiments/041-headless-browser-verification/README.md) | 🟢 **Verified** — `pnpm visual`, 12 assertions through real headless Chromium; found and worked around a mac13 install-support gap along the way, wired into `pnpm check` as a skippable gate |
+| 042 | [Three of Four](experiments/042-ui-usability-pass/README.md) | 🟡 **Verified live, `e2e`/`visual` queued** — conversation history + switching, mobile input/touch-target fixes, login screen context; visual identity ("not convincing") deliberately left for Isaac to direct |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
