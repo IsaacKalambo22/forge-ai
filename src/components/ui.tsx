@@ -12,7 +12,7 @@ export function Button({
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium " +
+    "inline-flex min-h-11 items-center justify-center gap-2 rounded-md text-sm font-medium " +
     "px-4 py-2 transition-colors disabled:pointer-events-none disabled:opacity-50 " +
     "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
   const variants: Record<ButtonVariant, string> = {
@@ -27,7 +27,12 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return (
     <input
       className={cx(
-        "rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground",
+        // text-base (16px) below the `sm:` breakpoint, not text-sm (14px):
+        // iOS Safari zooms the whole page in on focus of any form control
+        // under 16px, which on a phone reads as "the site is broken", not
+        // "the site zoomed" — nothing to do with intent, purely a font-size
+        // threshold. min-h-11 (44px) is Apple's own minimum tap target.
+        "min-h-11 rounded-md border border-border bg-surface px-3 py-2 text-base text-foreground sm:text-sm",
         "placeholder:text-muted-foreground",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
         className,
@@ -50,7 +55,10 @@ export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLS
   return (
     <select
       className={cx(
-        "rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground",
+        // Same reasoning as Input above — a <select> is a form control too,
+        // and iOS Safari does not distinguish it from a text field for the
+        // zoom-on-focus behavior.
+        "min-h-11 rounded-md border border-border bg-surface px-3 py-2 text-base text-foreground sm:text-sm",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
         className,
       )}

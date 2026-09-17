@@ -139,6 +139,51 @@ group("chat-state — persona_changed resets the conversation, not the persona f
   ok("clears error", next.error === null);
 }
 
+group("chat-state — new_conversation resets everything but the current persona");
+{
+  const midConversation: ChatState = {
+    persona: "terse",
+    messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }],
+    conversationId: "conv-abc",
+    loading: false,
+    error: "leftover error",
+    streaming: "leftover partial",
+    meta: "leftover meta",
+    analysis: { title: "t", topics: [], open_questions: [] },
+    analysing: false,
+    activity: ["leftover activity"],
+  };
+
+  const next = chatReducer(midConversation, { type: "new_conversation" });
+
+  eq("the persona survives — this is not a persona change", next.persona, "terse");
+  eq("everything else resets to a blank state", next, initialChatState("terse"));
+}
+
+group("chat-state — conversation_loaded hydrates from what the server has, not the client's guess");
+{
+  const messages = [
+    { role: "user" as const, content: "why did my agent loop forever" },
+    { role: "assistant" as const, content: "a stopping policy was missing a case" },
+  ];
+  const midOtherConversation: ChatState = {
+    ...initialChatState("default"),
+    conversationId: "some-other-conv",
+    messages: [{ role: "user", content: "unrelated" }],
+    error: "leftover error",
+    analysis: { title: "t", topics: [], open_questions: [] },
+  };
+
+  const next = chatReducer(midOtherConversation, {
+    type: "conversation_loaded", id: "conv-xyz", persona: "engineer", messages,
+  });
+
+  eq("switches to the loaded conversation's id", next.conversationId, "conv-xyz");
+  eq("adopts the persona it was actually created with", next.persona, "engineer");
+  eq("replaces the transcript with the server's, not a merge", next.messages, messages);
+  ok("clears leftovers from whatever was on screen before", next.error === null && next.analysis === null);
+}
+
 group("chat-state — analyse lifecycle");
 {
   const started = chatReducer(initialChatState(), { type: "analyse_started" });

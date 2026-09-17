@@ -1,13 +1,24 @@
 "use client";
 
-import { useReducer, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 
-import { MAX_TURNS, type StreamEvent } from "@/lib/messages";
+import { MAX_TURNS, type ChatMessage, type StreamEvent } from "@/lib/messages";
 import { readNdjsonStream } from "@/lib/ndjson";
 import { PERSONA_IDS, type PersonaId } from "@/lib/personas";
 import { chatReducer, initialChatState } from "@/lib/chat-state";
 
 import { Button, EmptyState, ErrorState, Input, Select } from "@/components/ui";
+
+type ConversationSummary = { id: string; persona: PersonaId; created_at: number };
+
+const NEW_CONVERSATION = "__new__";
+
+function conversationLabel(c: ConversationSummary): string {
+  const when = new Date(c.created_at).toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  return `${c.persona} · ${when}`;
+}
 
 export default function Chat() {
   const [input, setInput] = useState("");
@@ -19,6 +30,40 @@ export default function Chat() {
     persona, messages, conversationId, loading, error, streaming, meta, analysis, analysing,
     activity,
   } = state;
+
+  // Experiment 042. The server has owned and stored every conversation since
+  // Experiment 016; nothing ever read the list back. Without this a
+  // conversation only existed for as long as the tab stayed open — refresh,
+  // and it was gone from the SCREEN, though never from the server, with no
+  // way to get back to it. Refetched whenever the current conversation
+  // changes (a new one was created, or an existing one was loaded), which
+  // keeps this list accurate without a second, separate cache to invalidate.
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/conversations")
+      .then((r) => (r.ok ? r.json() : { conversations: [] }))
+      .then((data: { conversations: ConversationSummary[] }) => {
+        if (!cancelled) setConversations(data.conversations);
+      })
+      .catch(() => {
+        // The list is a convenience, not the source of truth — the server
+        // still has every conversation whether or not this fetch succeeds.
+      });
+    return () => { cancelled = true; };
+  }, [conversationId]);
+
+  async function switchConversation(value: string) {
+    if (value === NEW_CONVERSATION) {
+      dispatch({ type: "new_conversation" });
+      return;
+    }
+
+    const response = await fetch(`/api/conversations/${value}`);
+    if (!response.ok) return; // stale entry (deleted, or never was ours) — leave the current view as-is
+    const data = (await response.json()) as { id: string; persona: PersonaId; messages: ChatMessage[] };
+    dispatch({ type: "conversation_loaded", id: data.id, persona: data.persona, messages: data.messages });
+  }
 
   async function send(event: React.FormEvent) {
     event.preventDefault();

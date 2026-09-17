@@ -48,6 +48,7 @@ export const COST = {
   logout: 0,
   register: 0,
   metrics: 0, // reads in-process counters — but still auth'd and rate-limited
+  conversations: 0, // reads the transcript store — no model call
   chat: 1,
   analyze: 1,
   ask: 1,

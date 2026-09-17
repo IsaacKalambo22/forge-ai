@@ -81,6 +81,13 @@ export default function Login() {
         {busy ? "Signing in…" : "Sign in"}
       </Button>
       {error && <ErrorState id="login-error" message={error} />}
+      {/* Registration is operator-gated on purpose (Experiment 016): an open
+          signup on a service that spends money per request is an invitation.
+          Saying so here beats leaving a visitor with no account guessing
+          why nothing happens. */}
+      <p className="text-sm text-muted-foreground">
+        No account yet? Ask whoever runs this server to register one for you.
+      </p>
     </form>
   );
 }

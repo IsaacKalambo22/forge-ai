@@ -39,8 +39,12 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col bg-background">
         {locked ? (
           <main className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6">
-            <p className="mb-8 text-sm font-semibold tracking-tight text-foreground">
+            <p className="text-sm font-semibold tracking-tight text-foreground">
               Forge AI
+            </p>
+            <p className="mt-1.5 mb-8 text-sm text-muted-foreground">
+              Chat, retrieval-augmented search and an agent, running against a real
+              Claude backend — sign in to use them.
             </p>
             <Login />
           </main>

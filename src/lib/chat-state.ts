@@ -58,7 +58,15 @@ export type ChatAction =
   | { type: "persona_changed"; persona: PersonaId }
   | { type: "analyse_started" }
   | { type: "analyse_succeeded"; analysis: ConversationAnalysis }
-  | { type: "analyse_failed"; error: string };
+  | { type: "analyse_failed"; error: string }
+  // Experiment 042. Explicit, rather than reusing `persona_changed`'s reset —
+  // that action's reset is a SIDE EFFECT of changing personas; this one is the
+  // user's actual intent, and conflating the two would make a future change to
+  // either action's semantics silently break the other.
+  | { type: "new_conversation" }
+  // Hydrates state from a conversation the server already has — Experiment
+  // 016 stored it, but until now nothing ever read it back into the UI.
+  | { type: "conversation_loaded"; id: string; persona: PersonaId; messages: ChatMessage[] };
 
 export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
@@ -104,6 +112,16 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case "analyse_failed":
       return { ...state, analysing: false, error: action.error };
+
+    case "new_conversation":
+      return initialChatState(state.persona);
+
+    case "conversation_loaded":
+      return {
+        ...initialChatState(action.persona),
+        conversationId: action.id,
+        messages: action.messages,
+      };
 
     default: {
       const exhaustive: never = action;

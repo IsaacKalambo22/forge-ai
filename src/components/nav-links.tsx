@@ -21,7 +21,11 @@ export function NavLinks() {
             href={link.href}
             aria-current={active ? "page" : undefined}
             className={
-              "rounded-md px-3 py-1.5 text-sm font-medium transition-colors " +
+              // min-h-11: the same 44px minimum tap target Button/Input/Select
+              // use — this is the one link that gets a visitor anywhere at
+              // all, so it is the last place to leave undersized.
+              "inline-flex min-h-11 items-center rounded-md px-3 py-1.5 text-sm font-medium " +
+              "transition-colors " +
               (active
                 ? "bg-surface text-foreground"
                 : "text-muted-foreground hover:text-foreground")
