@@ -9,6 +9,7 @@ import { embedCache } from "./embedcache";
 import { topK, type Scored } from "./vector";
 import { log } from "./log";
 import { readyWithin, sharedRetryable } from "./once";
+import { record } from "./telemetry";
 
 export type Source = Chunk & { file: string };
 
@@ -144,9 +145,30 @@ export async function ensureIndexReady(timeoutMs = INDEX_WAIT_TIMEOUT_MS): Promi
   return indexBuilt || readyWithin(getIndex(), timeoutMs);
 }
 
+// Experiment 035. `observe()` (observe.ts) times a whole route, but for a
+// streaming one like /api/ask that is time-to-first-byte, not "how long did
+// retrieval take" specifically — its own docstring flags this exact gap as
+// deferred: "which layer owns the latency, not just the total".
+//
+// Reuses `telemetry.record()` rather than a new subsystem: it already groups
+// by an arbitrary string label and computes p50/p95 per label, which is
+// exactly what a sub-phase timing needs. "retrieval" is not an HTTP route —
+// labelled that way deliberately, so it reads on /metrics as what it is
+// (this function's own cost), not another endpoint.
+//
+// Unlike the rest of a model turn, this is fully measurable without the
+// Anthropic credential: embedding and vector search are local.
 export async function retrieve(query: string, k = 4): Promise<Scored<Source>[]> {
-  const [index, [queryVector]] = await Promise.all([getIndex(), embed([query])]);
-  return topK(queryVector, index, k);
+  const started = Date.now();
+  try {
+    const [index, [queryVector]] = await Promise.all([getIndex(), embed([query])]);
+    const result = topK(queryVector, index, k);
+    record({ route: "retrieval", status: 200, ms: Date.now() - started });
+    return result;
+  } catch (error) {
+    record({ route: "retrieval", status: 500, ms: Date.now() - started });
+    throw error;
+  }
 }
 
 export async function indexSize(): Promise<number> {

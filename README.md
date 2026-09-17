@@ -10,7 +10,7 @@ at a time.
 
 ## Status
 
-**Experiments 001–033 complete, 034 committed and not yet pushed.**
+**Experiments 001–034 complete, 035 committed and not yet pushed.**
 `pnpm check` → all gates pass locally: types · lint · 778 unit · 39 end-to-end ·
 retrieval benchmark.
 
@@ -73,6 +73,13 @@ confirmed itself and Experiment 028 both green on GitHub.
       on every route layer's first real request despite the boot-time warm-up
       completing — `ensureIndexReady()` waits briefly instead of just checking
       a boolean; verified live, a fresh server's first request now succeeds
+- [x] Accessibility pass on the three forms — `login.tsx` gained `required`/
+      `autoFocus`/error-to-field association; `chat.tsx`/`ask.tsx`'s selectors
+      got real visible labels instead of `aria-label`-only; contrast audited
+      against WCAG AA (all text pairs pass)
+- [x] Retrieval latency now traced separately from route-level time-to-first-byte
+      — reused `telemetry.record()`, no new subsystem; confirmed live that the
+      route timer for a streaming route was measuring almost nothing
 
 ### Currently building
 
@@ -127,7 +134,9 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
 - [ ] Headless-browser verification for UI changes — Experiment 030 could only
       check rendered markup via `curl`, not an actual screenshot
-- [ ] Tracing — which layer owns the latency, not just the total
+- [ ] Tracing — generation-phase latency specifically; retrieval-phase latency
+      is now measured and visible on `/metrics` ([035](experiments/035-retrieval-tracing/README.md)),
+      but the model-call phase is still invisible, and still blocked on the credential
 - [ ] Log shipping and retention — stdout is enough for one process, not two
 - [ ] CSRF token — slightly more pressing now there is a state-changing `PUT`
 - [ ] Moving the rate limiter and telemetry into the store — deliberately deferred
@@ -653,6 +662,7 @@ is the deliverable; the code is the apparatus.
 | 032 | [Minimum-Cacheable-Prefix Guard](experiments/032-cache-minimum-guard/README.md) | 🟢 **Measured and fixed** — `ASK_SYSTEM_PREAMBLE` was ~122 tokens vs. a 1024 floor, paying the write premium for nothing; both caching sites now gated |
 | 033 | [/metrics Time Range, and a Deeper Bug](experiments/033-metrics-time-range/README.md) | 🟢 **Feature shipped; bug found and fixed in 034** — `/metrics` was silently reading an always-empty module instance (fixed here); uncovered that 025's boot warm-up never reaches the routes that serve real traffic |
 | 034 | [Wait for the Index, Don't Just Check It](experiments/034-index-wait-not-check/README.md) | 🟢 **Verified live** — a fresh server's first `/api/ask`/`/api/agent` now succeeds (200, real sources) instead of a spurious 503 |
+| 035 | [Which Layer Owns the Latency](experiments/035-retrieval-tracing/README.md) | 🟢 **Verified live** — retrieval now has its own `/metrics` row; confirmed the route-level timer for a streaming route measures time-to-first-byte (~7ms), not real work (~15-680ms) |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
