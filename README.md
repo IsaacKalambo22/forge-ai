@@ -10,8 +10,8 @@ at a time.
 
 ## Status
 
-**Experiments 001–029 complete, 030 committed and not yet pushed.**
-`pnpm check` → all gates pass locally: types · lint · 742 unit · 39 end-to-end ·
+**Experiments 001–030 complete, 031 committed and not yet pushed.**
+`pnpm check` → all gates pass locally: types · lint · 761 unit · 39 end-to-end ·
 retrieval benchmark.
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -59,6 +59,9 @@ confirmed itself and Experiment 028 both green on GitHub.
       real `GET /api/metrics` data (no fabricated numbers)
 - [x] Chat's state machine extracted to `src/lib/chat-state.ts` and tested —
       the first `src/app/` logic tested the same way as `agent.ts`/`ndjson.ts`
+- [x] `/api/ask` system prompt split so the request-invariant preamble carries
+      a cache breakpoint — request shape verified; real hit still blocked, and
+      the preamble may be too small to ever cross the provider's minimum
 
 ### Currently building
 
@@ -96,7 +99,9 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 ### Deferred
 
 - [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every turn
-- [ ] Prefix caching on `/api/ask`
+- [ ] Whether `ASK_SYSTEM_PREAMBLE` is large enough to ever cross the provider's
+      minimum cacheable prefix — needs `count_tokens` (a credentialed call) to
+      even ask the question, let alone answer it
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
 - [ ] `ask.tsx` still hand-rolls its own state — the extraction only covered
@@ -625,6 +630,8 @@ is the deliverable; the code is the apparatus.
 | 027 | [CI Result Visibility](experiments/027-ci-visibility/README.md) | 🟢 **Confirmed** — `pnpm ci-status` + badge, green against the push that added them |
 | 028 | [Usage Recording on ask / agent / analyze](experiments/028-usage-everywhere/README.md) | 🟡 **Wired, CI-green** — the wiring compiled, linted and passed on GitHub; observing a real recorded row still needs the missing credential |
 | 029 | [Per-User Rate Limiting](experiments/029-per-user-rate-limit/README.md) | 🟢 **Verified** — 64 new unit assertions; identity, not IP, now bounds the same user |
+| 030 | [Professional UI Shell](experiments/030-professional-ui-shell/README.md) | 🟢 **Verified** — design tokens, shared primitives, `/metrics`; `chat.tsx` state extracted and tested (32 assertions) |
+| 031 | [/api/ask Prefix Caching](experiments/031-ask-prefix-caching/README.md) | 🟡 **Request shape verified** — breakpoint lands only on the request-invariant preamble; real cache hit blocked (credential), and the preamble may be too small to ever cross the minimum regardless |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

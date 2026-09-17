@@ -10,7 +10,7 @@ import { ConversationAnalysisSchema } from "./analysis";
 import type { ChatMessage, StreamEvent } from "./messages";
 import type { PersonaId } from "./personas";
 import { decide, explain, type AgentStep } from "./agent";
-import { makeNonce, passageInstructions, renderPassages } from "./passage";
+import { makeNonce, passageDelimiterNotice, PASSAGE_RULES, renderPassages } from "./passage";
 import { retrieve } from "./knowledge";
 import { pruneToolResults, type Message } from "./context";
 import { MAX_TOOL_ITERATIONS, TOOL_DEFINITIONS, executeTool } from "./tools";
@@ -31,6 +31,13 @@ const PROMPTS: Record<PersonaId, string> = {
     "Always state WHAT something is, WHY it exists, and WHAT problem it " +
     "solves. Prefer concrete examples over abstractions.",
 };
+
+// Experiment 031 (continuing 018). Byte-identical on every /api/ask call —
+// unlike the rest of that route's system prompt, which cannot be: the nonce
+// changes by design every request (010), and the retrieved passages change
+// with the question. This is the one piece left to mark cacheable.
+export const ASK_SYSTEM_PREAMBLE =
+  "You answer questions about a specific engineering notebook.\n\n" + PASSAGE_RULES;
 
 // `messages` is the ENTIRE conversation, not just the newest turn. The API is
 // stateless: it remembers nothing between calls, so context is something this
@@ -139,6 +146,42 @@ export function withCachedPrefix(messages: Anthropic.MessageParam[]): Anthropic.
   return [...prefix.slice(0, -1), { ...last, content: marked }, newest];
 }
 
+// The equivalent breakpoint for /api/ask (Experiment 031, continuing 018).
+//
+// /api/chat's prefix is the conversation SO FAR — it grows across turns of
+// one conversation. /api/ask has no conversation: every call is one question,
+// answered once. There is no growing history to put a breakpoint after.
+//
+// What there IS: `ASK_SYSTEM_PREAMBLE`, the one part of the system prompt
+// that is byte-identical across every call to this route, ever — not just
+// within one conversation. Everything else in the system prompt cannot be
+// cached, and not because caching wasn't implemented carefully enough:
+//
+//   the nonce       changes every request, ON PURPOSE (Experiment 010) — a
+//                   static delimiter is one a corpus entry could pre-empt
+//   the passages    change with the question — different retrieval, every time
+//
+// So the system prompt is two blocks, not one string: the preamble carries
+// the breakpoint; the nonce notice and passages follow, uncached, after it.
+//
+// HONEST LIMITATION, worse than 018's: `withCachedPrefix` above at least
+// CAN cross the ~1024-4096 token minimum once a conversation runs long enough.
+// `ASK_SYSTEM_PREAMBLE` cannot — it is a few sentences, fixed size, with no
+// mechanism to grow. It may be too small to ever produce a real cache hit,
+// which the credential-gated `cache_read_input_tokens` check would show, and
+// which is NOT claimed here. What this function guarantees is the request
+// SHAPE: the breakpoint lands only on content that is actually stable.
+export function withCachedAskSystem(
+  preamble: string,
+  nonce: string,
+  passages: string,
+): Anthropic.TextBlockParam[] {
+  return [
+    { type: "text", text: preamble, cache_control: { type: "ephemeral" } },
+    { type: "text", text: `${passageDelimiterNotice(nonce)}\n\n${passages}` },
+  ];
+}
+
 export async function* runToolLoop(
   messages: ChatMessage[],
   persona: PersonaId = "default",
@@ -244,23 +287,22 @@ export async function* answerFromNotebook(
   // See experiments/010-prompt-injection.
   const nonce = makeNonce();
 
-  const system =
-    "You answer questions about a specific engineering notebook.\n\n" +
-    passageInstructions(nonce) +
-    "\n\n" +
-    renderPassages(
-      retrieved.map(({ item }) => ({
-        file: item.file,
-        heading: item.heading,
-        text: item.text,
-      })),
-      nonce,
-    );
+  const passages = renderPassages(
+    retrieved.map(({ item }) => ({
+      file: item.file,
+      heading: item.heading,
+      text: item.text,
+    })),
+    nonce,
+  );
 
   const stream = anthropic.messages.stream({
     model: "claude-opus-5",
     max_tokens: 1024,
-    system,
+    // Experiment 031: split so the request-invariant preamble can carry a
+    // cache breakpoint (withCachedAskSystem, above) while the nonce and the
+    // passages — which must differ every call — stay outside it.
+    system: withCachedAskSystem(ASK_SYSTEM_PREAMBLE, nonce, passages),
     messages: [{ role: "user", content: question }],
   });
 

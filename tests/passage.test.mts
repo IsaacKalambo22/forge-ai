@@ -1,4 +1,7 @@
-import { makeNonce, passageInstructions, renderPassageV1, renderPassages, type Passage } from "@/lib/passage";
+import {
+  makeNonce, PASSAGE_RULES, passageDelimiterNotice, passageInstructions, renderPassageV1,
+  renderPassages, type Passage,
+} from "@/lib/passage";
 import { group, ok } from "./harness.mts";
 
 // A corpus entry written by an attacker: it simply contains the closing
@@ -55,3 +58,12 @@ const benign = renderPassages(
 );
 ok("benign markdown and code survive unchanged",
   benign.includes("const x = a < b;") && benign.includes("- two"));
+
+group("passage — split for caching (Experiment 031)");
+ok("PASSAGE_RULES carries no nonce", !/<passage-[0-9a-f]+>/.test(PASSAGE_RULES));
+ok("PASSAGE_RULES states the DATA rule", /DATA/.test(PASSAGE_RULES));
+ok("the delimiter notice names this nonce's tag", passageDelimiterNotice(nonce).includes(tag));
+ok("two different nonces produce different notices",
+  passageDelimiterNotice(nonce) !== passageDelimiterNotice(makeNonce()));
+ok("passageInstructions is exactly the notice plus the rules, joined",
+  passageInstructions(nonce) === `${passageDelimiterNotice(nonce)}\n${PASSAGE_RULES}`);
