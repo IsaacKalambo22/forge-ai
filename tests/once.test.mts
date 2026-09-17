@@ -1,6 +1,9 @@
-// Experiment 026. The cached-rejection bug, and the fix.
-import { sharedRetryable } from "@/lib/once";
+// Experiment 026. The cached-rejection bug, and the fix. Extended in 034 with
+// readyWithin() — a caller-side timeout that does not cancel the shared load.
+import { readyWithin, sharedRetryable } from "@/lib/once";
 import { group, ok, eq } from "./harness.mts";
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** A loader that fails `failures` times, then succeeds. Counts every attempt. */
 function flaky(failures: number) {
@@ -75,4 +78,43 @@ group("once — repeated failures keep retrying");
   for (let i = 0; i < 3; i++) await outcome(get());
   eq("the fourth call finally succeeds", await outcome(get()), "model (attempt 4)");
   eq("four attempts in total", f.attempts, 4);
+}
+
+group("once — Experiment 034: readyWithin() resolves true once the promise settles first");
+{
+  const fast = delay(5).then(() => "done");
+  eq("settles before the timeout", await readyWithin(fast, 200), true);
+}
+
+group("once — readyWithin() resolves false if the timeout comes first");
+{
+  const slow = delay(200).then(() => "done");
+  eq("times out before the promise settles", await readyWithin(slow, 5), false);
+}
+
+group("once — readyWithin() does not cancel or restart the underlying work");
+// The entire point: a caller that gives up must not affect the NEXT caller —
+// this is what makes it safe to use on a `sharedRetryable` load.
+{
+  const f = flaky(0);
+  const get = sharedRetryable(f.load); // f's loader takes 5ms
+  const gaveUp = await readyWithin(get(), 1); // 1ms — times out first
+  eq("this caller sees a timeout", gaveUp, false);
+  eq("but the load was already in flight, only once", f.attempts, 1);
+  eq("and the next caller gets the real result, not a re-run", await outcome(get()), "model (attempt 1)");
+}
+
+group("once — readyWithin() propagates a real rejection, distinct from a timeout");
+// A caller needs to tell "still running" apart from "it broke" — collapsing
+// both into `false` would make ensureIndexReady() report a build failure as
+// "try again shortly", which is not true: trying again would fail the same way.
+{
+  const failing = Promise.reject(new Error("embedding model unavailable"));
+  const result = await readyWithin(failing, 200).catch((e: unknown) => `THREW: ${(e as Error).message}`);
+  eq("rejects rather than resolving false", result, "THREW: embedding model unavailable");
+}
+
+group("once — readyWithin() with an already-settled promise resolves immediately");
+{
+  eq("no timeout needed for work already done", await readyWithin(Promise.resolve("x"), 0), true);
 }

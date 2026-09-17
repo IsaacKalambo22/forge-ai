@@ -34,3 +34,32 @@ export function sharedRetryable<T>(load: () => Promise<T>): () => Promise<T> {
     return pending;
   };
 }
+
+// Experiment 034. A caller that does not want to wait indefinitely for a
+// shared load — `sharedRetryable`'s point is that the load keeps running for
+// whoever asks next, so giving up on THIS call must not cancel or restart it.
+//
+// WHY THIS EXISTS: knowledge.ts's index build used to gate a route on a plain
+// boolean (`indexReady()`), which is wrong the moment the build is fast enough
+// to be worth just waiting for — a boolean can only say "done" or "not done",
+// never "not done yet, but check back in a moment". Racing against a timeout
+// says that.
+
+/**
+ * Resolves `true` once `promise` settles, or `false` if `timeoutMs` passes
+ * first. `promise` is not cancelled either way — this only decides how long
+ * ONE caller waits for it, not whether the work continues.
+ *
+ * A rejection of `promise` propagates as a rejection here too, rather than
+ * being reported as a timeout — a real failure and "still running" are
+ * different things a caller needs to tell apart.
+ */
+export async function readyWithin(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
+  const timedOut = Symbol("timeout");
+  const timeout = new Promise<typeof timedOut>((resolve) => {
+    setTimeout(() => resolve(timedOut), timeoutMs);
+  });
+
+  const outcome = await Promise.race([promise.then(() => true as const), timeout]);
+  return outcome === true;
+}

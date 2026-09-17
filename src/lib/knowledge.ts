@@ -8,7 +8,7 @@ import { EMBEDDING_MODEL, embed } from "./embeddings";
 import { embedCache } from "./embedcache";
 import { topK, type Scored } from "./vector";
 import { log } from "./log";
-import { sharedRetryable } from "./once";
+import { readyWithin, sharedRetryable } from "./once";
 
 export type Source = Chunk & { file: string };
 
@@ -88,7 +88,10 @@ const getIndex = sharedRetryable(async () => {
 
 let indexBuilt = false;
 
-/** True once the index is built. Lets a route answer honestly while it warms. */
+/** True once the index is built IN THIS MODULE INSTANCE. See `ensureIndexReady()` —
+ * this alone is not a safe gate for a route to 503 on. Kept for the `/metrics`
+ * status badge, an informational display where a stale "Building" is a cosmetic
+ * problem, not a request that fails when it didn't need to. */
 export function indexReady(): boolean {
   return indexBuilt;
 }
@@ -101,8 +104,9 @@ export function indexReady(): boolean {
  * caller queued behind the first with no indication that anything was
  * happening. A silent eight-minute wait is indistinguishable from a hang.
  *
- * A route can now kick the build off and return 503 + Retry-After instead,
- * which is the truthful answer: not broken, not ready.
+ * Used by `instrumentation.ts` to start the build at boot without blocking
+ * the server from accepting requests. NOT used by routes to decide whether to
+ * 503 — see `ensureIndexReady()`, which replaced that use in Experiment 034.
  */
 export function warmIndex(): void {
   void getIndex().catch(() => {
@@ -110,6 +114,34 @@ export function warmIndex(): void {
     // rejection here would take down the process. The awaiting caller in
     // retrieve() still sees the real error.
   });
+}
+
+// Experiment 034. `indexReady()` answers "has THIS module instance finished
+// building" — and Next.js gives a Route Handler and `instrumentation.ts` (and,
+// per Experiment 033, a Server Component page) SEPARATE instances of this
+// module. `instrumentation.ts`'s boot-time warm-up completing never flips a
+// Route Handler's own `indexBuilt`, so a plain `if (!indexReady())` 503s
+// EVERY route layer's first real request — the exact cost Experiment 025 was
+// built to remove, silently reintroduced by a boundary 025 didn't know existed.
+//
+// The fix is not to make `indexBuilt` cross-layer (a bigger change — see
+// Experiment 033's Decisions). It's to notice that the question a first
+// request actually needs answered isn't "is it built RIGHT NOW" — it's "will
+// it be built SOON ENOUGH to be worth waiting for". Since Experiment 024,
+// `getIndex()` reads from `embedCache`, a real file every layer shares —
+// so THIS layer's first build, even though `indexBuilt` starts false here
+// too, is a cache read (measured: 77-312ms), not the 516s cold-embed 024
+// fixed. Worth a bounded wait instead of an instant refusal.
+const INDEX_WAIT_TIMEOUT_MS = 3000;
+
+/**
+ * Waits for the index, but not forever. Resolves `true` once ready, or
+ * `false` if `timeoutMs` passes first — the build keeps running regardless
+ * (it is the same memoized promise `getIndex()`/`retrieve()` use), so a
+ * caller that gave up does not slow down or restart it for the next one.
+ */
+export async function ensureIndexReady(timeoutMs = INDEX_WAIT_TIMEOUT_MS): Promise<boolean> {
+  return indexBuilt || readyWithin(getIndex(), timeoutMs);
 }
 
 export async function retrieve(query: string, k = 4): Promise<Scored<Source>[]> {

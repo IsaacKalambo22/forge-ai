@@ -2,7 +2,7 @@ import { guard } from "@/lib/guard";
 import { runAgent } from "@/lib/ai";
 import type { StreamEvent } from "@/lib/messages";
 import { observe, streamFailure } from "@/lib/observe";
-import { indexReady, warmIndex } from "@/lib/knowledge";
+import { ensureIndexReady } from "@/lib/knowledge";
 import { usage } from "@/lib/usage";
 import { formatCost } from "@/lib/pricing";
 import { log } from "@/lib/log";
@@ -39,14 +39,17 @@ async function handle(request: Request, requestId: string) {
     );
   }
 
-  // Experiment 024. The notebook index takes minutes to build from cold, and
-  // before this the request simply waited in silence — indistinguishable from a
-  // hang. Answer honestly instead, while the build proceeds in the background.
+  // Experiment 024, corrected in 034. The notebook index takes minutes to
+  // build from cold, and before 024 the request simply waited in silence —
+  // indistinguishable from a hang. But a plain readiness CHECK (024's original
+  // shape) 503s every route layer's first request even when the rebuild would
+  // have been a fast cache read (034) — so this WAITS, briefly, instead of
+  // refusing outright. Still honest: past `INDEX_WAIT_TIMEOUT_MS` it gives up
+  // and says so, rather than let the request hang indefinitely.
   //
   // This must happen BEFORE the first byte: past that line the status is
   // committed and a 503 is no longer expressible (Experiment 004).
-  if (!indexReady()) {
-    warmIndex();
+  if (!(await ensureIndexReady())) {
     return Response.json(
       { error: "The notebook index is still building. Try again shortly." },
       { status: 503, headers: { "Retry-After": "30" } },

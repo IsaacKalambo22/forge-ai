@@ -10,8 +10,8 @@ at a time.
 
 ## Status
 
-**Experiments 001–032 complete, 033 committed and not yet pushed.**
-`pnpm check` → all gates pass locally: types · lint · 771 unit · 39 end-to-end ·
+**Experiments 001–033 complete, 034 committed and not yet pushed.**
+`pnpm check` → all gates pass locally: types · lint · 778 unit · 39 end-to-end ·
 retrieval benchmark.
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -69,6 +69,10 @@ confirmed itself and Experiment 028 both green on GitHub.
       verifying it against a live server, found and fixed `/metrics` silently
       reading an always-empty module instance of `currentSnapshot()`/`indexReady()`
       (Next.js bundles the page and the API route into separate module layers)
+- [x] Fixed the regression that finding surfaced: `/api/ask`/`/api/agent` 503'd
+      on every route layer's first real request despite the boot-time warm-up
+      completing — `ensureIndexReady()` waits briefly instead of just checking
+      a boolean; verified live, a fresh server's first request now succeeds
 
 ### Currently building
 
@@ -105,14 +109,12 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 
 ### Deferred
 
-- [ ] **Boot-time warm-up (Experiment 025) doesn't reach the routes that serve real
-      traffic** — `instrumentation.ts` and each Route Handler get separate module
+- [ ] `instrumentation.ts` and each Route Handler still have separate module
       instances of `knowledge.ts`'s `indexBuilt` flag (Next.js's per-layer
-      bundling), so `/api/ask`'s first real request still pays a cold-build 503,
-      the exact cost 025 was built to remove. Found in
-      [033](experiments/033-metrics-time-range/README.md), not yet fixed —
-      real product-facing regression, not a correctness bug (requests still
-      succeed, just slower once per route layer)
+      bundling) — the user-facing symptom (a spurious 503 on a route layer's
+      first request) is fixed ([034](experiments/034-index-wait-not-check/README.md)),
+      but the flag itself still doesn't agree across layers, which is why
+      `/metrics`'s index badge can still show stale "Building"
 - [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every turn
 - [ ] Whether the real provider-side minimum matches the documented 1024 tokens
       used by `worthCaching()` — this project has never made a live call with
@@ -637,7 +639,7 @@ is the deliverable; the code is the apparatus.
 | 022 | [Continuous Verification](experiments/022-continuous-verification/README.md) | 🟢 **Verified** — `pnpm check` gate (~38s), pre-push hook fires; CI written, not yet run |
 | 023 | [Injection, Beyond the Unit Test](experiments/023-injection-end-to-end/README.md) | 🟢 **Verified** — the corpus really contains payloads; renderer holds. Surfaced an 8.6-min index build |
 | 024 | [Affordable Index](experiments/024-affordable-index/README.md) | 🟢 **Measured** — caching: ~40ms warm vs ~56s cold; batching: **~18×** and half the RSS (first attempt measured 2.6× from noise) |
-| 025 | [Warm Index](experiments/025-warm-index/README.md) | 🟡 **Partially verified** — derived data split from app state, deleting two bugs; boot warm-up itself found broken across the route boundary in [033](experiments/033-metrics-time-range/README.md) |
+| 025 | [Warm Index](experiments/025-warm-index/README.md) | 🟢 **Verified** — derived data split from app state, deleting two bugs; boot warm-up's route-boundary gap found in [033](experiments/033-metrics-time-range/README.md), fixed in [034](experiments/034-index-wait-not-check/README.md) |
 | 026 | [CI Was Never Green](experiments/026-ci-was-never-green/README.md) | 🟢 **Fixed and confirmed** — green on the push that followed |
 | 027 | [CI Result Visibility](experiments/027-ci-visibility/README.md) | 🟢 **Confirmed** — `pnpm ci-status` + badge, green against the push that added them |
 | 028 | [Usage Recording on ask / agent / analyze](experiments/028-usage-everywhere/README.md) | 🟡 **Wired, CI-green** — the wiring compiled, linted and passed on GitHub; observing a real recorded row still needs the missing credential |
@@ -645,7 +647,8 @@ is the deliverable; the code is the apparatus.
 | 030 | [Professional UI Shell](experiments/030-professional-ui-shell/README.md) | 🟢 **Verified** — design tokens, shared primitives, `/metrics`; `chat.tsx` state extracted and tested (32 assertions) |
 | 031 | [/api/ask Prefix Caching](experiments/031-ask-prefix-caching/README.md) | 🟡 **Request shape verified** — breakpoint lands only on the request-invariant preamble; real cache hit blocked (credential) |
 | 032 | [Minimum-Cacheable-Prefix Guard](experiments/032-cache-minimum-guard/README.md) | 🟢 **Measured and fixed** — `ASK_SYSTEM_PREAMBLE` was ~122 tokens vs. a 1024 floor, paying the write premium for nothing; both caching sites now gated |
-| 033 | [/metrics Time Range, and a Deeper Bug](experiments/033-metrics-time-range/README.md) | 🟡 **Feature shipped; bigger bug found, not fixed** — `/metrics` was silently reading an always-empty module instance (fixed); uncovered that Experiment 025's boot warm-up never reaches the routes that serve real traffic |
+| 033 | [/metrics Time Range, and a Deeper Bug](experiments/033-metrics-time-range/README.md) | 🟢 **Feature shipped; bug found and fixed in 034** — `/metrics` was silently reading an always-empty module instance (fixed here); uncovered that 025's boot warm-up never reaches the routes that serve real traffic |
+| 034 | [Wait for the Index, Don't Just Check It](experiments/034-index-wait-not-check/README.md) | 🟢 **Verified live** — a fresh server's first `/api/ask`/`/api/agent` now succeeds (200, real sources) instead of a spurious 503 |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
