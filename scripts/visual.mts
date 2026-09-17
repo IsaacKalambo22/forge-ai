@@ -72,6 +72,27 @@ try {
     buttonColor);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/01-login.png` });
 
+  group("visual — the theme toggle (Experiment 043), reachable even signed out");
+  const themeSelect = page.getByLabel("Theme");
+  const bgBeforeToggle = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  await themeSelect.selectOption("dark");
+  await page.waitForTimeout(200); // the 150ms background-color transition in globals.css
+  const bgAfterDark = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  ok("selecting Dark actually changes the rendered background — not just a class name",
+    bgAfterDark !== bgBeforeToggle, `${bgBeforeToggle} -> ${bgAfterDark}`);
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/01b-login-dark.png` });
+
+  await page.reload();
+  await page.waitForLoadState("networkidle");
+  const bgAfterReload = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  ok("the choice survives a reload — layout.tsx's pre-hydration script reapplies it " +
+    "before paint, not after", bgAfterReload === bgAfterDark, `${bgAfterReload} vs ${bgAfterDark}`);
+
+  // Back to light for the rest of this run's screenshots — an explicit reset,
+  // not a side effect the reader has to notice was never undone.
+  await page.getByLabel("Theme").selectOption("light");
+  await page.waitForTimeout(200);
+
   group("visual — signing in through the real form, not a cookie the test injected");
   await usernameField.fill("alice");
   await passwordField.fill("a-visual-test-password");
