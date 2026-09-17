@@ -10,8 +10,8 @@ at a time.
 
 ## Status
 
-**Experiments 001–030 complete, 031 committed and not yet pushed.**
-`pnpm check` → all gates pass locally: types · lint · 761 unit · 39 end-to-end ·
+**Experiments 001–031 complete, 032 committed and not yet pushed.**
+`pnpm check` → all gates pass locally: types · lint · 771 unit · 39 end-to-end ·
 retrieval benchmark.
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
@@ -62,6 +62,9 @@ confirmed itself and Experiment 028 both green on GitHub.
 - [x] `/api/ask` system prompt split so the request-invariant preamble carries
       a cache breakpoint — request shape verified; real hit still blocked, and
       the preamble may be too small to ever cross the provider's minimum
+- [x] Minimum-cacheable-prefix guard — measured `ASK_SYSTEM_PREAMBLE` at ~122
+      tokens (documented floor: 1024), confirming it was paying the cache-write
+      premium for nothing; both caching call sites now skip marking below it
 
 ### Currently building
 
@@ -99,14 +102,11 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
 ### Deferred
 
 - [ ] Caching the system prompt and tool definitions — byte-stable, re-billed every turn
-- [ ] Whether `ASK_SYSTEM_PREAMBLE` is large enough to ever cross the provider's
-      minimum cacheable prefix — needs `count_tokens` (a credentialed call) to
-      even ask the question, let alone answer it
+- [ ] Whether the real provider-side minimum matches the documented 1024 tokens
+      used by `worthCaching()` — this project has never made a live call with
+      `cache_control` set to check
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
 - [ ] Reservation-based hard budget cap — today's check is a ceiling with a lip
-- [ ] `ask.tsx` still hand-rolls its own state — the extraction only covered
-      `chat.tsx`, since that was the concrete gap, not a policy of extracting
-      everything
 - [ ] Headless-browser verification for UI changes — Experiment 030 could only
       check rendered markup via `curl`, not an actual screenshot
 - [ ] Tracing — which layer owns the latency, not just the total
@@ -631,7 +631,8 @@ is the deliverable; the code is the apparatus.
 | 028 | [Usage Recording on ask / agent / analyze](experiments/028-usage-everywhere/README.md) | 🟡 **Wired, CI-green** — the wiring compiled, linted and passed on GitHub; observing a real recorded row still needs the missing credential |
 | 029 | [Per-User Rate Limiting](experiments/029-per-user-rate-limit/README.md) | 🟢 **Verified** — 64 new unit assertions; identity, not IP, now bounds the same user |
 | 030 | [Professional UI Shell](experiments/030-professional-ui-shell/README.md) | 🟢 **Verified** — design tokens, shared primitives, `/metrics`; `chat.tsx` state extracted and tested (32 assertions) |
-| 031 | [/api/ask Prefix Caching](experiments/031-ask-prefix-caching/README.md) | 🟡 **Request shape verified** — breakpoint lands only on the request-invariant preamble; real cache hit blocked (credential), and the preamble may be too small to ever cross the minimum regardless |
+| 031 | [/api/ask Prefix Caching](experiments/031-ask-prefix-caching/README.md) | 🟡 **Request shape verified** — breakpoint lands only on the request-invariant preamble; real cache hit blocked (credential) |
+| 032 | [Minimum-Cacheable-Prefix Guard](experiments/032-cache-minimum-guard/README.md) | 🟢 **Measured and fixed** — `ASK_SYSTEM_PREAMBLE` was ~122 tokens vs. a 1024 floor, paying the write premium for nothing; both caching sites now gated |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →

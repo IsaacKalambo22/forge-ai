@@ -129,6 +129,15 @@ what it was before.
 | `pnpm check` (types · lint · unit · e2e · eval) | ✅ All gates pass |
 | Manual smoke test (dev server + curl, both routes) | ✅ No server errors, expected content present |
 | `chat.tsx` state extracted to `src/lib/chat-state.ts` | ✅ Verified (32 unit assertions, `pnpm check`) |
+| `ask.tsx` inspected for the same problem | ✅ Checked — no reducer-worthy invariant found, deliberately left as-is |
+
+**On `ask.tsx`, checked and closed rather than deferred:** its `useState` calls
+looked superficially like `chat.tsx`'s before extraction, but there's no invariant
+behind them worth protecting — no committed-vs-streaming distinction (`/api/ask` has
+no conversation history to accidentally commit early into), no cross-field coupling
+(`mode` isn't tied to a server-side identity the way `persona` was to
+`conversationId`). Extracting a reducer here would have moved code, not fixed
+anything — the lesson this was checking for.
 
 ## Next Step
 

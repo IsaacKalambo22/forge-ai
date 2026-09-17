@@ -35,6 +35,30 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+// ---------------------------------------------------------------------------
+// Experiment 032 (continuing 018 & 031) — the minimum cacheable prefix,
+// guarded instead of just documented.
+//
+// Anthropic's published minimum is model-dependent — roughly 1024 tokens for
+// Opus/Sonnet, 2048 for Haiku (this project only calls Opus/Sonnet, so the
+// lower number applies). Below it, `cache_control` is accepted by the API but
+// produces no `cache_read_input_tokens` on any later request — silently, per
+// the notes in `ai.ts`. That alone would just be a missed opportunity. What
+// makes it a LOSS rather than a no-op: a write below the minimum still seems
+// to pay the 1.25x write premium, for a read that can mathematically never
+// happen. Marking a too-small prefix is worse than not marking it at all.
+//
+// This is the documented floor, not a measured one — the same status as
+// every other number in this file. It exists to decide WHETHER to attempt
+// marking, before any request is sent, not to predict a saving.
+export const MIN_CACHEABLE_TOKENS = 1024;
+
+/** Is this estimated size large enough that marking `cache_control` could
+ * plausibly help, rather than just paying the write premium for nothing? */
+export function worthCaching(estimatedTokens: number): boolean {
+  return estimatedTokens >= MIN_CACHEABLE_TOKENS;
+}
+
 export function estimateTurnTokens(turns: Turn[]): number {
   // Each message carries a few tokens of role/structure overhead beyond its
   // text. Small, and it compounds over a long history, so it is not dropped.

@@ -12,7 +12,7 @@ import type { PersonaId } from "./personas";
 import { decide, explain, type AgentStep } from "./agent";
 import { makeNonce, passageDelimiterNotice, PASSAGE_RULES, renderPassages } from "./passage";
 import { retrieve } from "./knowledge";
-import { pruneToolResults, type Message } from "./context";
+import { estimateMessageTokens, estimateTokens, pruneToolResults, worthCaching, type Message } from "./context";
 import { MAX_TOOL_ITERATIONS, TOOL_DEFINITIONS, executeTool } from "./tools";
 
 const anthropic = new Anthropic({
@@ -120,15 +120,18 @@ export async function analyzeConversation(messages: ChatMessage[]) {
 // is 53% cheaper than resending full history, and it forgets nothing. A
 // sliding window is cheaper only past turn 25, which this project cannot reach.
 //
-// HONEST LIMITATION: the minimum cacheable prefix is model-dependent (roughly
-// 1024-4096 tokens). A short conversation is below it and will silently not
-// cache — no error, no warning, just no `cache_read_input_tokens`. That is why
-// the first turns in the projection show caching costing slightly MORE.
+// Experiment 032: below the documented minimum (`worthCaching()`, context.ts),
+// marking `cache_control` doesn't just fail to help — it pays the 1.25x write
+// premium for a read that can never happen, below the size the API will ever
+// serve back. That is why the first turns in the `pnpm cost` projection show
+// caching costing slightly MORE: this guard is what used to be missing.
 export function withCachedPrefix(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
   // Nothing to cache until there is a prior exchange to re-read.
   if (messages.length < 3) return messages;
 
   const prefix = messages.slice(0, -1);
+  if (!worthCaching(estimateMessageTokens(prefix as unknown as Message[]))) return messages;
+
   const newest = messages[messages.length - 1];
   const last = prefix[prefix.length - 1];
 
@@ -164,21 +167,34 @@ export function withCachedPrefix(messages: Anthropic.MessageParam[]): Anthropic.
 // So the system prompt is two blocks, not one string: the preamble carries
 // the breakpoint; the nonce notice and passages follow, uncached, after it.
 //
-// HONEST LIMITATION, worse than 018's: `withCachedPrefix` above at least
-// CAN cross the ~1024-4096 token minimum once a conversation runs long enough.
-// `ASK_SYSTEM_PREAMBLE` cannot — it is a few sentences, fixed size, with no
-// mechanism to grow. It may be too small to ever produce a real cache hit,
-// which the credential-gated `cache_read_input_tokens` check would show, and
-// which is NOT claimed here. What this function guarantees is the request
-// SHAPE: the breakpoint lands only on content that is actually stable.
+// Experiment 032, MEASURED (not just flagged as an open question): estimated
+// at ~122 tokens, `ASK_SYSTEM_PREAMBLE` sits at roughly a tenth of the
+// documented minimum — `worthCaching()` below is what makes this function
+// actually skip marking it, rather than silently paying the write premium for
+// a read that can never happen. `withCachedPrefix` above at least CAN cross
+// the minimum once a conversation runs long enough; this preamble is fixed
+// size, with no mechanism to grow, so the finding is not "not yet" — closer
+// to "not like this." If the preamble ever needs to be cached, it needs more
+// genuinely-stable words in it, not padding to clear a threshold.
 export function withCachedAskSystem(
   preamble: string,
   nonce: string,
   passages: string,
 ): Anthropic.TextBlockParam[] {
+  const dynamic = `${passageDelimiterNotice(nonce)}\n\n${passages}`;
+
+  if (!worthCaching(estimateTokens(preamble))) {
+    // Still two blocks — the request shape stays the same either way — just
+    // without a breakpoint that would only cost money.
+    return [
+      { type: "text", text: preamble },
+      { type: "text", text: dynamic },
+    ];
+  }
+
   return [
     { type: "text", text: preamble, cache_control: { type: "ephemeral" } },
-    { type: "text", text: `${passageDelimiterNotice(nonce)}\n\n${passages}` },
+    { type: "text", text: dynamic },
   ];
 }
 

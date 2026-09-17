@@ -1,6 +1,8 @@
-// Experiment 018.
-import { estimateTokens, estimateTurnTokens, windowed, project, type Turn, type Rates }
-  from "@/lib/context";
+// Experiment 018, extended in 032.
+import {
+  estimateTokens, estimateTurnTokens, MIN_CACHEABLE_TOKENS, windowed, worthCaching, project,
+  type Turn, type Rates,
+} from "@/lib/context";
 import { PRICING, formatCost } from "@/lib/pricing";
 import { group, ok, eq, throws } from "./harness.mts";
 
@@ -22,6 +24,12 @@ eq("per-message overhead is counted",
   estimateTurnTokens([turn("user", "abcd")]), 1 + 4);
 eq("summed across turns",
   estimateTurnTokens([turn("user", "abcd"), turn("assistant", "abcd")]), (1 + 4) * 2);
+
+group("context — Experiment 032: the minimum-cacheable-prefix guard");
+ok("one token below the minimum is not worth caching", !worthCaching(MIN_CACHEABLE_TOKENS - 1));
+ok("exactly the minimum is worth caching", worthCaching(MIN_CACHEABLE_TOKENS));
+ok("comfortably above is worth caching", worthCaching(MIN_CACHEABLE_TOKENS * 10));
+ok("zero is not worth caching", !worthCaching(0));
 
 group("context — sliding window");
 const ten: Turn[] = Array.from({ length: 10 }, (_, i) =>
