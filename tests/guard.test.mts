@@ -124,7 +124,12 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
 
 group("guard — session cookie: valid, unexpired, unrevoked");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
-  const userId = randomUUID();
+  // A real user, not an arbitrary uuid — Experiment 037's reservation carries
+  // a genuine FOREIGN KEY on user_id, unlike the read-only checks this route
+  // used to make. A signature only proves the claim is unforged; it was
+  // never proof the subject exists, which is exactly why the session-cookie
+  // path trusts the MAC and nothing else (see checkAuth's comment).
+  const userId = realUser();
   const result = guard(req({ cookie: cookieHeader(userId) }), "chat", randomUUID());
   ok("succeeds", !(result instanceof Response));
   if (!(result instanceof Response)) {
@@ -146,7 +151,9 @@ withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
 
 group("guard — session cookie: revoked despite a valid signature");
 withEnv({ APP_SECRET: SECRET, NODE_ENV: "test" }, () => {
-  const userId = randomUUID();
+  // Real, same reason as the group above: the first guard() call below
+  // succeeds and reaches checkBudget(), which now inserts a reservation row.
+  const userId = realUser();
   const token = issueSession(SECRET, userId, Date.now());
   const cookie = `forge_session=${token}`;
 
