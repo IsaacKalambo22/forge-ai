@@ -72,14 +72,17 @@ try {
     buttonColor);
   await page.screenshot({ path: `${SCREENSHOT_DIR}/01-login.png` });
 
-  group("visual — the theme toggle (Experiment 043), reachable even signed out");
-  const themeSelect = page.getByLabel("Theme");
+  group("visual — the theme toggle (Experiment 043/045), reachable even signed out");
+  const themeGroup = page.getByRole("group", { name: "Theme" });
+  ok("the theme group is visible on the lock screen", await themeGroup.isVisible());
   const bgBeforeToggle = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  await themeSelect.selectOption("dark");
+  await page.getByRole("button", { name: "Dark theme" }).click();
   await page.waitForTimeout(200); // the 150ms background-color transition in globals.css
   const bgAfterDark = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  ok("selecting Dark actually changes the rendered background — not just a class name",
+  ok("clicking Dark actually changes the rendered background — not just a class name",
     bgAfterDark !== bgBeforeToggle, `${bgBeforeToggle} -> ${bgAfterDark}`);
+  ok("the Dark button reflects its own pressed state",
+    (await page.getByRole("button", { name: "Dark theme" }).getAttribute("aria-pressed")) === "true");
   await page.screenshot({ path: `${SCREENSHOT_DIR}/01b-login-dark.png` });
 
   await page.reload();
@@ -90,7 +93,7 @@ try {
 
   // Back to light for the rest of this run's screenshots — an explicit reset,
   // not a side effect the reader has to notice was never undone.
-  await page.getByLabel("Theme").selectOption("light");
+  await page.getByRole("button", { name: "Light theme" }).click();
   await page.waitForTimeout(200);
 
   group("visual — signing in through the real form, not a cookie the test injected");
@@ -116,6 +119,14 @@ try {
     await page.getByRole("heading", { name: "Ask the notebook" }).isVisible());
   await page.screenshot({ path: `${SCREENSHOT_DIR}/02-home.png`, fullPage: true });
 
+  // Same reasoning as the login screenshot above — the README shows the
+  // authenticated shell in both themes, so both need a real, current capture.
+  await page.getByRole("button", { name: "Dark theme" }).click();
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/02a-home-dark.png`, fullPage: true });
+  await page.getByRole("button", { name: "Light theme" }).click();
+  await page.waitForTimeout(200);
+
   group("visual — the top bar collapses into a menu below 640px (Experiment 044)");
   // Adding the theme toggle (Experiment 043) was what pushed the top bar past
   // its available width below `sm:` — measured, at the time, 440px of content
@@ -131,15 +142,15 @@ try {
 
   const menuButton = page.getByRole("button", { name: "Open menu" });
   ok("the menu button is visible below the breakpoint", await menuButton.isVisible());
-  ok("the theme select is NOT reachable before the menu is opened",
-    !(await page.getByLabel("Theme").isVisible()));
+  ok("the theme group is NOT reachable before the menu is opened",
+    !(await page.getByRole("group", { name: "Theme" }).isVisible()));
 
   await menuButton.click();
   await page.screenshot({ path: `${SCREENSHOT_DIR}/02b-mobile-menu.png` });
   ok("Observability becomes reachable once the menu is opened",
     await page.getByRole("link", { name: "Observability" }).isVisible());
-  ok("the theme select becomes reachable too — the SAME element, not a second copy",
-    await page.getByLabel("Theme").isVisible());
+  ok("the theme group becomes reachable too — the SAME element, not a second copy",
+    await page.getByRole("group", { name: "Theme" }).isVisible());
 
   await page.getByRole("button", { name: "Close menu" }).click();
   await page.setViewportSize({ width: 1280, height: 800 }); // back to default for what follows
