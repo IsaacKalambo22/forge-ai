@@ -10,9 +10,10 @@ at a time.
 
 ## Status
 
-**Experiments 001–039 complete, 040 not yet committed.**
+**Experiments 001–040 complete, 041 not yet committed.**
 `pnpm check` → all gates pass locally: types · lint · 854 unit · 39 end-to-end ·
-retrieval benchmark.
+retrieval benchmark · 12 headless-browser assertions (skipped automatically if
+`chromium` is not installed).
 
 **CI is green, and confirmed by the tool built to check it.** Experiment 026's fix
 was confirmed on the push that followed it; Experiment 027 closed the gap that let
@@ -108,6 +109,13 @@ confirmed itself and Experiment 028 both green on GitHub.
       `PUT` (registration) never reads the cookie at all, and no CORS
       configuration exists anywhere to widen either. No token added — it would
       duplicate a defense that already covers the one path that matters
+- [x] `pnpm visual` — the project's first browser-automation dependency
+      (`playwright`, devDependency, Chromium only). Drives a real headless
+      browser through the lock screen, sign-in, the authenticated shell and
+      `/metrics`, asserting real visibility and computed styles rather than
+      grepped HTML; wired into `pnpm check` as a 7th gate that skips cleanly
+      when chromium isn't installed, the same shape `verify` uses for a
+      missing credential
 
 ### Currently building
 
@@ -153,8 +161,9 @@ See [Experiment 020](experiments/020-verification-debt/README.md).
       used by `worthCaching()` — this project has never made a live call with
       `cache_control` set to check
 - [ ] Summarisation — deferred until conversations exceed the caching crossover (~25 turns)
-- [ ] Headless-browser verification for UI changes — Experiment 030 could only
-      check rendered markup via `curl`, not an actual screenshot
+- [ ] Wiring `pnpm visual` (Experiment 041) into CI — needs `--with-deps` system
+      libraries on the GitHub Actions image and a measurement of the time cost;
+      today it runs locally and skips cleanly in CI, which has no chromium
 - [ ] Tracing — generation-phase latency specifically; retrieval-phase latency
       is now measured and visible on `/metrics` ([035](experiments/035-retrieval-tracing/README.md)),
       but the model-call phase is still invisible, and still blocked on the credential
@@ -233,6 +242,27 @@ pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+### 5. Optional: headless-browser verification
+
+`pnpm check` (below) includes a `visual` gate that drives a real headless Chromium
+through the UI — it skips automatically if the browser isn't installed, so this step
+is optional. To enable it:
+
+```bash
+npx playwright install chromium
+```
+
+On macOS 13, Playwright's installer refuses to even attempt a download ("does not
+support chromium on mac13") — it is outside their tested support window, not an
+actual incompatibility. Verified: the override below downloads the mac14 build,
+which launches and renders correctly on mac13.
+
+```bash
+PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=mac14 npx playwright install chromium
+```
+
+See [Experiment 041](experiments/041-headless-browser-verification/README.md).
 
 ## Testing the endpoint
 
@@ -688,6 +718,7 @@ is the deliverable; the code is the apparatus.
 | 038 | [Making the Display Agree With the Check](experiments/038-budget-status-reservations/README.md) | 🟢 **Verified live** — `/metrics`'s budget tiles now include outstanding reservations, not just recorded spend; watched `reserved` move from $0 to $0.0256 and back across a real request |
 | 039 | [Making `indexReady()` Actually Cross-Layer](experiments/039-index-ready-cross-layer/README.md) | 🟢 **Verified live** — the badge reads the shared embedding cache instead of a per-layer flag; confirmed `ready` flips true from a build that ran entirely in a different module instance |
 | 040 | [The CSRF Token That Isn't Needed](experiments/040-csrf-audit/README.md) | 🟢 **Audited, closed** — every cookie is `SameSite=Strict` from one code path, the one state-changing `PUT` never reads it, no CORS widens either; no token added |
+| 041 | [A Real Browser, Not Just curl](experiments/041-headless-browser-verification/README.md) | 🟢 **Verified** — `pnpm visual`, 12 assertions through real headless Chromium; found and worked around a mac13 install-support gap along the way, wired into `pnpm check` as a skippable gate |
 
 Beyond the foundation: prompt design → context management → persistence → auth →
 rate limiting → observability → evaluation → RAG (017–022) → tool calling (023–027) →
